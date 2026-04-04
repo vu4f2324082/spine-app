@@ -1,7 +1,10 @@
 import { json } from '@sveltejs/kit';
 import { OPENAI_API_KEY } from '$env/static/private';
 import OpenAI from 'openai';
-import { PDFParse } from 'pdf-parse';
+import { createRequire } from 'module';
+const require = createRequire(import.meta.url);
+const pdfParseLib = require('pdf-parse');
+const PDFParse = pdfParseLib.PDFParse;
 
 export async function POST({ request }: { request: Request }) {
 	try {
@@ -70,7 +73,11 @@ Ensure the output is ONLY valid JSON without any markdown formatting wrappers or
 			response_format: { type: 'json_object' }
 		});
 
-		const aiOutput = response.choices[0]?.message?.content || '{}';
+		let aiOutput = response.choices[0]?.message?.content || '{}';
+		const jsonMatch = aiOutput.match(/\{[\s\S]*\}/);
+		if (jsonMatch) {
+			aiOutput = jsonMatch[0];
+		}
 		let extractedData;
 		try {
 			extractedData = JSON.parse(aiOutput);

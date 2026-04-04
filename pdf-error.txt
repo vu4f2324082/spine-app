@@ -1,0 +1,5 @@
+InvalidPDFException: Invalid PDF structure.
+    at mr (C:\Users\rites\OneDrive\Desktop\spine-app\node_modules\pdf-parse\dist\pdf-parse\cjs\index.cjs:1:458273)
+    at exports.PDFParse.load (C:\Users\rites\OneDrive\Desktop\spine-app\node_modules\pdf-parse\dist\pdf-parse\cjs\index.cjs:1:472589)
+    at async exports.PDFParse.getText (C:\Users\rites\OneDrive\Desktop\spine-app\node_modules\pdf-parse\dist\pdf-parse\cjs\index.cjs:1:472027)
+    at async [eval]:1:138

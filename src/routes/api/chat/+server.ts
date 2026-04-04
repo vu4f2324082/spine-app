@@ -51,7 +51,8 @@ export async function POST({ request }: { request: Request }) {
 
 		const response = await openai.chat.completions.create({
 			model: 'llama-3.3-70b-versatile',
-			messages: messages as any
+			messages: messages as any,
+			temperature: 0.7
 		});
 
 		const text = response.choices[0]?.message?.content || '';
