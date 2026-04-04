@@ -40,7 +40,7 @@ export async function sendMessage(
 		if (!response.ok) {
 			console.error('[SpineGuide AI] API error:', data.error);
 			if (response.status === 429 || (data.error && data.error.includes('429'))) {
-				return '⚠️ The AI assistant has reached its daily usage limit. Please try again tomorrow, or update the Gemini API key in the .env file with a fresh key from aistudio.google.com.';
+				return '⚠️ The AI assistant has reached its daily usage limit. Please try again tomorrow, or update the OpenAI API key in the .env file with a fresh key.';
 			}
 			return `⚠️ AI error: ${data.error || 'Unknown error'}`;
 		}

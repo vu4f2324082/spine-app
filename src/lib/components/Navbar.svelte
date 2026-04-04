@@ -3,6 +3,7 @@
   import { goto } from '$app/navigation';
   import { authStore } from '$lib/stores/auth';
   import { logout } from '$lib/firebase/auth';
+  import logo from '$lib/assets/spine-app-logo.png';
 
   const navItems = [
     { href: '/dashboard', label: 'Dashboard', icon: '◎' },
@@ -23,7 +24,7 @@
   <div class="max-w-screen-xl mx-auto px-4 h-16 flex items-center justify-between">
     <!-- Logo -->
     <a href="/dashboard" class="flex items-center gap-2.5 group">
-      <div class="w-8 h-8 bg-primary rounded-lg flex items-center justify-center text-white font-bold text-sm">S</div>
+      <img src={logo} alt="SpineSync Logo" class="w-8 h-8 rounded-lg object-contain" />
       <span class="font-semibold text-black text-lg tracking-tight">SpineSync</span>
     </a>
 

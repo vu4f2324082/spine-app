@@ -1,6 +1,6 @@
 import { json } from '@sveltejs/kit';
-import { GEMINI_API_KEY } from '$env/static/private';
-import { GoogleGenerativeAI } from '@google/generative-ai';
+import { OPENAI_API_KEY } from '$env/static/private';
+import OpenAI from 'openai';
 
 const SYSTEM_PROMPT = `You are SpineGuide, a compassionate and knowledgeable AI health companion for spine surgery patients. Your role is to:
 
@@ -25,11 +25,14 @@ export async function POST({ request }: { request: Request }) {
 	try {
 		const { message, history, patientContext } = await request.json();
 
-		if (!GEMINI_API_KEY) {
+		if (!OPENAI_API_KEY || OPENAI_API_KEY.includes('your_new_key_here') || OPENAI_API_KEY === 'your_openai_api_key_here') {
 			return json({ error: 'API key not configured' }, { status: 500 });
 		}
 
-		const genAI = new GoogleGenerativeAI(GEMINI_API_KEY);
+		const openai = new OpenAI({ 
+			apiKey: OPENAI_API_KEY,
+			baseURL: 'https://api.groq.com/openai/v1'
+		});
 
 		const systemInstruction =
 			SYSTEM_PROMPT +
@@ -37,14 +40,21 @@ export async function POST({ request }: { request: Request }) {
 				? `\n\nPatient Context: Surgery type: ${patientContext.surgeryType || 'unknown'}, Recovery stage: ${patientContext.recoveryStage || 'unknown'}, Days since surgery: ${patientContext.daysSinceSurgery || 'unknown'}.`
 				: '');
 
-		const model = genAI.getGenerativeModel({
-			model: 'gemini-1.5-flash',
-			systemInstruction
+		const messages = [
+			{ role: 'system', content: systemInstruction },
+			...(history || []).map((h: any) => ({
+				role: h.role === 'model' ? 'assistant' : 'user',
+				content: h.parts ? h.parts.map((p: any) => p.text).join('\n') : ''
+			})),
+			{ role: 'user', content: message }
+		];
+
+		const response = await openai.chat.completions.create({
+			model: 'llama-3.3-70b-versatile',
+			messages: messages as any
 		});
 
-		const chat = model.startChat({ history: history || [] });
-		const result = await chat.sendMessage(message);
-		const text = result.response.text();
+		const text = response.choices[0]?.message?.content || '';
 
 		return json({ text });
 	} catch (error: unknown) {

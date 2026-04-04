@@ -126,7 +126,7 @@
           {#each symptomOptions as s}
             <button
               onclick={() => toggleSymptom(s)}
-              class="text-xs px-3 py-1.5 rounded-full border transition-all {symptoms.includes(s) ? 'bg-primary text-white border-primary' : 'bg-white border-border hover:border-primary'}"
+              class="text-xs px-3 py-1.5 rounded-full border transition-all {symptoms.includes(s) ? 'bg-primary text-white border-primary' : 'bg-white text-black border-border hover:border-primary'}"
             >{s}</button>
           {/each}
         </div>

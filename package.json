@@ -23,11 +23,11 @@
 		"vite": "^7.3.1"
 	},
 	"dependencies": {
-		"@google/generative-ai": "^0.24.1",
 		"@types/three": "^0.183.1",
 		"autoprefixer": "^10.4.27",
 		"chart.js": "^4.5.1",
 		"firebase": "^12.11.0",
+		"openai": "^6.33.0",
 		"postcss": "^8.5.8",
 		"tailwindcss": "^4.2.2",
 		"three": "^0.183.2"
