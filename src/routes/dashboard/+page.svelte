@@ -1,8 +1,8 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import { authStore } from '$lib/stores/auth';
-  import { getSymptomLogs, getExercisePlan, getExerciseCompletions } from '$lib/firebase/firestore';
-  import { generateRecoverySummary } from '$lib/ai/gemini';
+  import { getSymptomLogs, getExercisePlan, getExerciseCompletions, saveExercisePlan } from '$lib/firebase/firestore';
+  import { generateRecoverySummary, generatePhysiotherapyPlan } from '$lib/ai/gemini';
   import StatCard from '$lib/components/StatCard.svelte';
   import ProgressBar from '$lib/components/ProgressBar.svelte';
   import ExerciseCard from '$lib/components/ExerciseCard.svelte';
@@ -16,6 +16,7 @@
   let todayCompletions = $state<ExerciseCompletion[]>([]);
   let aiSummary = $state('');
   let loading = $state(true);
+  let uploadingPdf = $state(false);
 
   const today = new Date().toISOString().split('T')[0];
   const user = $derived($authStore.user);
@@ -80,6 +81,78 @@
       'mid': 'Mid Recovery (6–12 weeks)', 'late': 'Late Recovery (3–6 months)', 'complete': 'Full Recovery'
     };
     return labels[stage || ''] || 'Not set';
+  }
+
+  async function handleFileUpload(event: Event) {
+    const target = event.target as HTMLInputElement;
+    if (!target.files || target.files.length === 0) return;
+    
+    const file = target.files[0];
+    if (file.type !== 'application/pdf') {
+      alert('Please upload a valid PDF file.');
+      return;
+    }
+
+    uploadingPdf = true;
+
+    try {
+      const formData = new FormData();
+      formData.append('report', file);
+
+      const res = await fetch('/api/upload-report', { method: 'POST', body: formData });
+      const json = await res.json();
+      
+      if (!res.ok) throw new Error(json.error || 'Failed to upload report');
+
+      if (json.data && user) {
+        const { surgeryType: st, recoveryStage: rs, painScore: ps, symptoms: sym, limitations: lim } = json.data;
+        
+        const validSurgeries = [
+          "Lumbar Discectomy", "Spinal Fusion", "Laminectomy", 
+          "Cervical Discectomy", "Scoliosis Correction", "Vertebroplasty", "Other"
+        ];
+        const stLower = (st || '').toLowerCase();
+        const extractedSurgeryType = validSurgeries.find(s => s.toLowerCase().includes(stLower) || stLower.includes(s.toLowerCase())) || "Other";
+        
+        const validStages = ["pre-op", "early", "mid", "late", "complete"];
+        const extractedRecoveryStage = validStages.includes(rs) ? rs : "early";
+        
+        const raw = await generatePhysiotherapyPlan({ 
+          surgeryType: extractedSurgeryType, 
+          recoveryStage: extractedRecoveryStage, 
+          painScore: typeof ps === 'number' ? ps : (painScore !== null ? painScore : 5), 
+          symptoms: sym || '', 
+          limitations: lim || '' 
+        });
+        
+        const data = typeof raw === 'string' ? JSON.parse(raw) : raw;
+
+        const addIds = (exercises: any, prefix: string) =>
+          (exercises || []).map((e: any, i: number) => ({ ...e, id: `${prefix}_${i}`, category: prefix }));
+
+        const newPlan = {
+          uid: user.uid,
+          generatedAt: new Date(),
+          surgeryType: extractedSurgeryType,
+          recoveryStage: extractedRecoveryStage,
+          morning: addIds(data.morning, 'morning'),
+          afternoon: addIds(data.afternoon, 'afternoon'),
+          evening: addIds(data.evening, 'evening'),
+          precautions: data.precautions || [],
+          redFlags: data.redFlags || []
+        };
+
+        await saveExercisePlan(user.uid, newPlan);
+        
+        plan = newPlan;
+        alert('Hospital report successfully processed and new plan generated!');
+      }
+    } catch (err: any) {
+      alert(err.message || 'Error processing hospital report.');
+    } finally {
+      uploadingPdf = false;
+      if (target) target.value = '';
+    }
   }
 </script>
 
@@ -155,9 +228,30 @@
           <a href="/monitoring" class="btn-secondary text-sm px-4 py-2">Log Symptoms</a>
         </div>
       </div>
+      
+      <!-- Upload Report Card -->
+      <div class="lg:col-span-2 card bg-primary/5 border-2 border-dashed border-primary/30 text-center transition-colors hover:bg-primary/10">
+        <h3 class="flex items-center justify-center gap-2 font-medium text-black mb-1">
+          <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="text-primary"><path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z"></path><polyline points="14 2 14 8 20 8"></polyline></svg>
+          Update Your Recovery Plan
+        </h3>
+        <p class="text-[13px] text-muted mb-4 px-4 max-w-lg mx-auto">Upload a new hospital report (PDF) to automatically generate or update your custom physiotherapy schedule based on your latest condition.</p>
+        
+        <input type="file" accept="application/pdf" onchange={handleFileUpload} class="hidden" id="dash-report-upload" disabled={uploadingPdf} />
+        
+        <label for="dash-report-upload" class="inline-flex items-center justify-center btn-secondary cursor-pointer py-2 px-5 text-sm {uploadingPdf ? 'opacity-70 pointer-events-none' : ''}">
+          {#if uploadingPdf}
+            <LoadingSpinner size="sm" label="" />
+            <span class="ml-2">Processing Report...</span>
+          {:else}
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="mr-2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="17 8 12 3 7 8"></polyline><line x1="12" y1="3" x2="12" y2="15"></line></svg>
+            Upload Report (PDF)
+          {/if}
+        </label>
+      </div>
 
       <!-- Exercise Progress -->
-      <div class="card space-y-4">
+      <div class="card space-y-4 row-span-2">
         <h2 class="section-title">Today's Exercises</h2>
         {#if allExercises.length === 0}
           <EmptyState title="No plan yet" description="Generate your physiotherapy plan to see today's exercises." icon="🏃" actionLabel="Create Plan" onAction={() => globalThis.location.href = '/physiotherapy'} />

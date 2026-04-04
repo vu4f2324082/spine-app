@@ -23,7 +23,7 @@ You are NOT a doctor. You are an educational and supportive companion.`;
 
 export async function POST({ request }: { request: Request }) {
 	try {
-		const { message, history, patientContext } = await request.json();
+		const { message, history, patientContext, requestSuggestions, temperature } = await request.json();
 
 		if (!OPENAI_API_KEY || OPENAI_API_KEY.includes('your_new_key_here') || OPENAI_API_KEY === 'your_openai_api_key_here') {
 			return json({ error: 'API key not configured' }, { status: 500 });
@@ -34,11 +34,15 @@ export async function POST({ request }: { request: Request }) {
 			baseURL: 'https://api.groq.com/openai/v1'
 		});
 
-		const systemInstruction =
+		let systemInstruction =
 			SYSTEM_PROMPT +
 			(patientContext
 				? `\n\nPatient Context:\n- Surgery type: ${patientContext.surgeryType || 'unknown'}\n- Recovery stage: ${patientContext.recoveryStage || 'unknown'}\n- Days since surgery: ${patientContext.daysSinceSurgery || 'unknown'}${patientContext.symptoms ? `\n- Current Symptoms: ${patientContext.symptoms}` : ''}${patientContext.precautions ? `\n- Precautions: ${patientContext.precautions}` : ''}`
 				: '');
+
+		if (requestSuggestions) {
+			systemInstruction += `\n\nAt the very end of your response, provide exactly 3 suggested follow-up questions for the user to ask next. Format them strictly as a JSON array inside a <suggestions> tag, like this: \n<suggestions>["Question 1?", "Question 2?", "Question 3?"]</suggestions>\nDo not put any other text after this tag.`;
+		}
 
 		const messages = [
 			{ role: 'system', content: systemInstruction },
@@ -52,12 +56,26 @@ export async function POST({ request }: { request: Request }) {
 		const response = await openai.chat.completions.create({
 			model: 'llama-3.3-70b-versatile',
 			messages: messages as any,
-			temperature: 0.7
+			temperature: temperature ?? 0.7
 		});
 
-		const text = response.choices[0]?.message?.content || '';
+		const rawText = response.choices[0]?.message?.content || '';
+		let text = rawText;
+		let suggestions: string[] | undefined = undefined;
 
-		return json({ text });
+		if (requestSuggestions) {
+			const match = text.match(/<suggestions>([\s\S]*?)<\/suggestions>/);
+			if (match) {
+				try {
+					suggestions = JSON.parse(match[1]);
+					text = text.replace(match[0], '').trim();
+				} catch (e) {
+					console.error('[SpineGuide API] Failed to parse suggestions:', e);
+				}
+			}
+		}
+
+		return json({ text, suggestions });
 	} catch (error: unknown) {
 		console.error('[SpineGuide API] Error:', error);
 		const message = error instanceof Error ? error.message : 'Unknown error';

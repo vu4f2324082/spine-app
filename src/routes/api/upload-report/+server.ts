@@ -74,16 +74,21 @@ Ensure the output is ONLY valid JSON without any markdown formatting wrappers or
 		});
 
 		let aiOutput = response.choices[0]?.message?.content || '{}';
+		
+		// Aggressively clean markdown blocks if LLaMA inserts them despite json_object mode
+		aiOutput = aiOutput.replace(/```json/g, '').replace(/```/g, '').trim();
+
 		const jsonMatch = aiOutput.match(/\{[\s\S]*\}/);
 		if (jsonMatch) {
 			aiOutput = jsonMatch[0];
 		}
+		
 		let extractedData;
 		try {
 			extractedData = JSON.parse(aiOutput);
 		} catch (e) {
 			console.error('[Upload API] Failed to parse JSON from AI output:', aiOutput);
-			extractedData = { surgeryType: 'Other', recoveryStage: 'early', painScore: 5, symptoms: '', limitations: '' };
+			extractedData = { surgeryType: 'Unspecified Spine Surgery', recoveryStage: 'early', painScore: 5, symptoms: 'No specific symptoms extracted.', limitations: 'General post-operative limitations.' };
 		}
 
 		return json({

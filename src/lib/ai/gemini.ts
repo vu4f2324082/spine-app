@@ -25,7 +25,7 @@ export function createChatSession(context?: PatientContext, history?: ChatHistor
 export async function sendMessage(
 	_session: unknown,
 	message: string
-): Promise<string> {
+): Promise<{text: string; suggestions?: string[]}> {
 	try {
 		const response = await fetch('/api/chat', {
 			method: 'POST',
@@ -33,7 +33,8 @@ export async function sendMessage(
 			body: JSON.stringify({
 				message,
 				history: chatHistory,
-				patientContext
+				patientContext,
+				requestSuggestions: true
 			})
 		});
 
@@ -42,19 +43,19 @@ export async function sendMessage(
 		if (!response.ok) {
 			console.error('[SpineGuide AI] API error:', data.error);
 			if (response.status === 429 || (data.error && data.error.includes('429'))) {
-				return '⚠️ The AI assistant has reached its daily usage limit. Please try again tomorrow, or update the OpenAI API key in the .env file with a fresh key.';
+				return { text: '⚠️ The AI assistant has reached its daily usage limit. Please try again tomorrow, or update the OpenAI API key in the .env file with a fresh key.' };
 			}
-			return `⚠️ AI error: ${data.error || 'Unknown error'}`;
+			return { text: `⚠️ AI error: ${data.error || 'Unknown error'}` };
 		}
 
 		// Add to history so the conversation has context
 		chatHistory.push({ role: 'user', parts: [{ text: message }] });
 		chatHistory.push({ role: 'model', parts: [{ text: data.text }] });
 
-		return data.text;
+		return { text: data.text, suggestions: data.suggestions };
 	} catch (error: unknown) {
 		console.error('[SpineGuide AI] sendMessage error:', error);
-		return "I'm having trouble connecting right now. Please try again in a moment, or contact your healthcare provider if you have urgent concerns.";
+		return { text: "I'm having trouble connecting right now. Please try again in a moment, or contact your healthcare provider if you have urgent concerns." };
 	}
 }
 
@@ -65,18 +66,20 @@ export async function generatePhysiotherapyPlan(params: {
 	symptoms: string;
 	limitations: string;
 }): Promise<string> {
-	const prompt = `As SpineGuide, generate a personalized physiotherapy plan for a patient with the following details:
+	const prompt = `As SpineGuide, generate a highly custom, individualized physiotherapy exercise plan for a patient with the precisely extracted clinical details:
 - Surgery Type: ${params.surgeryType}
 - Recovery Stage: ${params.recoveryStage}
 - Current Pain Score: ${params.painScore}/10
-- Current Symptoms: ${params.symptoms}
-- Physical Limitations: ${params.limitations}
+- Current Symptoms: ${params.symptoms || 'None reported'}
+- Physical Limitations: ${params.limitations || 'None reported'}
+
+CRITICAL INSTRUCTION: You MUST strictly tailor every single exercise to this specific surgery and these specific symptoms. DO NOT just output a generic static list of "Ankle Pumps", "Glute Bridges" or "Heel Slides" every single time! Invent descriptive, unique variations of safe exercises directly targeted at the physical limitations and pain score. The exercises MUST vary based on the inputs provided!
 
 Please provide a structured plan with:
-1. MORNING exercises (3-4 gentle exercises)
-2. AFTERNOON exercises (2-3 exercises)
-3. EVENING exercises (2-3 relaxation exercises)
-4. PRECAUTIONS (3-4 important safety tips)
+1. MORNING exercises (3-4 highly targeted gentle exercises)
+2. AFTERNOON exercises (2-3 targeted exercises)
+3. EVENING exercises (2-3 specific relaxation exercises)
+4. PRECAUTIONS (3-4 important customized safety tips)
 5. RED FLAGS (symptoms that require immediate doctor contact)
 
 Format as JSON with structure:
@@ -93,7 +96,7 @@ Keep exercises safe, gentle, and appropriate for the recovery stage. Add exercis
 	const response = await fetch('/api/chat', {
 		method: 'POST',
 		headers: { 'Content-Type': 'application/json' },
-		body: JSON.stringify({ message: prompt, history: [] })
+		body: JSON.stringify({ message: prompt, history: [], temperature: 0.9 })
 	});
 
 	if (!response.ok) {
