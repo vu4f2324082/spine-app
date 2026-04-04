@@ -10,13 +10,15 @@ export interface PatientContext {
 	surgeryType?: string;
 	recoveryStage?: string;
 	daysSinceSurgery?: number;
+	precautions?: string;
+	symptoms?: string;
 }
 
 let chatHistory: ChatHistoryItem[] = [];
 let patientContext: PatientContext | undefined;
 
-export function createChatSession(context?: PatientContext) {
-	chatHistory = [];
+export function createChatSession(context?: PatientContext, history?: ChatHistoryItem[]) {
+	chatHistory = history || [];
 	patientContext = context;
 }
 

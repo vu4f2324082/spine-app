@@ -101,7 +101,7 @@ export async function markExerciseComplete(
   const ref = doc(db, 'exercise_completions', uid, 'days', date);
   const existing = await getDoc(ref);
   const completions = existing.exists() ? (existing.data().completions || []) : [];
-  completions.push({ ...completion, completedAt: serverTimestamp() });
+  completions.push({ ...completion, completedAt: Timestamp.now() });
   await setDoc(ref, { completions, date }, { merge: true });
 }
 
@@ -126,6 +126,23 @@ export async function saveChatSession(session: ChatSession): Promise<string> {
     updatedAt: serverTimestamp()
   });
   return ref.id;
+}
+
+export async function getChatSessions(uid: string): Promise<ChatSession[]> {
+  const q = query(collection(db, 'ai_chat_sessions'), where('uid', '==', uid));
+  const snap = await getDocs(q);
+  
+  const sessions = snap.docs.map(d => ({ id: d.id, ...d.data() } as ChatSession));
+  
+  return sessions.sort((a, b) => {
+    const timeA = a.updatedAt && typeof (a.updatedAt as any).toMillis === 'function' 
+      ? (a.updatedAt as any).toMillis() 
+      : new Date(a.updatedAt || 0).getTime();
+    const timeB = b.updatedAt && typeof (b.updatedAt as any).toMillis === 'function' 
+      ? (b.updatedAt as any).toMillis() 
+      : new Date(b.updatedAt || 0).getTime();
+    return timeB - timeA;
+  });
 }
 
 // ─── Doctor Notes ─────────────────────────────────────────────────────────────

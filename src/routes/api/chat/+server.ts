@@ -37,7 +37,7 @@ export async function POST({ request }: { request: Request }) {
 		const systemInstruction =
 			SYSTEM_PROMPT +
 			(patientContext
-				? `\n\nPatient Context: Surgery type: ${patientContext.surgeryType || 'unknown'}, Recovery stage: ${patientContext.recoveryStage || 'unknown'}, Days since surgery: ${patientContext.daysSinceSurgery || 'unknown'}.`
+				? `\n\nPatient Context:\n- Surgery type: ${patientContext.surgeryType || 'unknown'}\n- Recovery stage: ${patientContext.recoveryStage || 'unknown'}\n- Days since surgery: ${patientContext.daysSinceSurgery || 'unknown'}${patientContext.symptoms ? `\n- Current Symptoms: ${patientContext.symptoms}` : ''}${patientContext.precautions ? `\n- Precautions: ${patientContext.precautions}` : ''}`
 				: '');
 
 		const messages = [
