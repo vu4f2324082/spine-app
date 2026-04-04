@@ -23,6 +23,9 @@
   let symptoms = $state('');
   let limitations = $state('');
 
+  // PDF Upload state
+  let uploadingPdf = $state(false);
+
   const user = $derived($authStore.user);
   const profile = $derived($authStore.patientProfile);
   const today = new Date().toISOString().split('T')[0];
@@ -82,6 +85,62 @@
     }
   }
 
+  async function handleFileUpload(event: Event) {
+    const target = event.target as HTMLInputElement;
+    if (!target.files || target.files.length === 0) return;
+    
+    const file = target.files[0];
+    if (file.type !== 'application/pdf') {
+      error = 'Please upload a valid PDF file.';
+      return;
+    }
+
+    uploadingPdf = true;
+    error = '';
+
+    try {
+      const formData = new FormData();
+      formData.append('report', file);
+
+      const res = await fetch('/api/upload-report', {
+        method: 'POST',
+        body: formData
+      });
+
+      const json = await res.json();
+      if (!res.ok) {
+        throw new Error(json.error || 'Failed to upload report');
+      }
+
+      if (json.data) {
+        const { surgeryType: st, recoveryStage: rs, painScore: ps, symptoms: sym, limitations: lim } = json.data;
+        
+        const validSurgeries = [
+          "Lumbar Discectomy", "Spinal Fusion", "Laminectomy", 
+          "Cervical Discectomy", "Scoliosis Correction", "Vertebroplasty", "Other"
+        ];
+        
+        const stLower = (st || '').toLowerCase();
+        surgeryType = validSurgeries.find(s => s.toLowerCase().includes(stLower) || stLower.includes(s.toLowerCase())) || "Other";
+        
+        const validStages = ["pre-op", "early", "mid", "late", "complete"];
+        recoveryStage = validStages.includes(rs) ? rs : "early";
+        
+        painScore = typeof ps === 'number' ? ps : 5;
+        symptoms = sym || '';
+        limitations = lim || '';
+
+        await generatePlan();
+      }
+    } catch (err: unknown) {
+      error = (err as Error).message || 'Error parsing hospital report.';
+    } finally {
+      uploadingPdf = false;
+      const target = event.target as HTMLInputElement;
+      if (target) target.value = '';
+    }
+  }
+
   async function handleComplete(exerciseId: string, exerciseName: string) {
     if (!user || completedIds.has(exerciseId)) return;
     completedIds = new Set([...completedIds, exerciseId]);
@@ -116,7 +175,31 @@
         <div class="mb-4"></div>
       {/if}
 
-      <div class="space-y-4">
+      <!-- Hospital Report Upload Section -->
+      <div class="mb-6 p-5 border-2 border-dashed border-primary/30 rounded-xl bg-primary/5 text-center transition-colors hover:bg-primary/10">
+        <h3 class="font-medium text-black mb-2 text-base">Have your Hospital Report?</h3>
+        <p class="text-xs text-muted mb-4 px-4">Upload your surgery report (PDF) and our AI will automatically extract your details to instantly create your personalized schedule.</p>
+        
+        <input type="file" accept="application/pdf" onchange={handleFileUpload} class="hidden" id="report-upload" disabled={uploadingPdf || generating} />
+        
+        <label for="report-upload" class="inline-flex items-center justify-center btn-secondary cursor-pointer py-2.5 px-6 font-medium {uploadingPdf ? 'opacity-70 pointer-events-none' : ''}">
+          {#if uploadingPdf}
+            <LoadingSpinner size="sm" label="" />
+            <span class="ml-2">Analyzing PDF...</span>
+          {:else}
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="mr-2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="17 8 12 3 7 8"></polyline><line x1="12" y1="3" x2="12" y2="15"></line></svg>
+            Upload Report (PDF)
+          {/if}
+        </label>
+      </div>
+
+      <div class="flex items-center gap-4 mb-6">
+        <div class="h-px bg-border flex-1"></div>
+        <span class="text-[10px] text-muted uppercase font-bold tracking-wider">Or Enter Manually</span>
+        <div class="h-px bg-border flex-1"></div>
+      </div>
+
+      <div class="space-y-4 {uploadingPdf ? 'opacity-50 pointer-events-none' : ''}">
         <div>
           <label class="label" for="surgeryType">Surgery Type *</label>
           <select id="surgeryType" class="input-field" bind:value={surgeryType}>
