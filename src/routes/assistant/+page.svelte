@@ -115,27 +115,22 @@
 
   <!-- Messages -->
   <div bind:this={messagesContainer} class="flex-1 overflow-y-auto py-4 space-y-1">
-    {#if messages.length === 1}
-      <div class="py-4">
-        {#each [messages[0]] as msg}
-          <ChatBubble message={msg} />
-        {/each}
-        <div class="mt-4">
-          <p class="text-xs text-muted mb-3 px-10">Suggested questions:</p>
-          <div class="flex flex-wrap gap-2 px-10">
-            {#each suggestions as s}
-              <button
-                onclick={() => useSuggestion(s)}
-                class="text-xs px-3 py-2 bg-white border border-border rounded-full hover:border-primary hover:text-primary transition-colors text-left"
-              >{s}</button>
-            {/each}
-          </div>
+    {#each messages as msg (msg.timestamp)}
+      <ChatBubble message={msg} />
+    {/each}
+
+    {#if !isLoading && messages.length > 0 && messages[messages.length - 1].role === 'model'}
+      <div class="mt-4 pb-4">
+        <p class="text-xs text-muted mb-3 px-10">Suggested questions:</p>
+        <div class="flex flex-wrap gap-2 px-10">
+          {#each suggestions as s}
+            <button
+              onclick={() => useSuggestion(s)}
+              class="text-xs px-3 py-2 bg-white text-black border border-border rounded-full hover:border-primary hover:text-primary transition-colors text-left"
+            >{s}</button>
+          {/each}
         </div>
       </div>
-    {:else}
-      {#each messages as msg (msg.timestamp)}
-        <ChatBubble message={msg} />
-      {/each}
     {/if}
 
     {#if isLoading}
