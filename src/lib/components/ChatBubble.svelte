@@ -1,4 +1,5 @@
 <script lang="ts">
+  import aiLogo from '$lib/assets/spine-app-ai-logo.jpg';
   import type { ChatMessage } from '$lib/types';
 
   interface Props {
@@ -16,9 +17,7 @@
 
 <div class="flex {isUser ? 'justify-end' : 'justify-start'} mb-4 animate-slide-up">
   {#if !isUser}
-    <div class="w-8 h-8 bg-primary rounded-full flex items-center justify-center text-white text-xs font-semibold flex-shrink-0 mr-2 mt-auto">
-      SG
-    </div>
+    <img src={aiLogo} alt="AI Avatar" class="w-8 h-8 rounded-full flex-shrink-0 mr-2 mt-auto object-cover border border-border" />
   {/if}
 
   <div class="max-w-[75%] flex flex-col {isUser ? 'items-end' : 'items-start'}">

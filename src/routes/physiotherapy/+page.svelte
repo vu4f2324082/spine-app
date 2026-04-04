@@ -47,7 +47,10 @@
   });
 
   async function generatePlan() {
-    if (!surgeryType || !recoveryStage) { error = 'Please select a surgery type and recovery stage.'; return; }
+    if (!surgeryType || !recoveryStage || !symptoms.trim() || !limitations.trim()) { 
+      error = 'Please fill out all required fields before generating your plan.'; 
+      return; 
+    }
     generating = true;
     error = '';
     try {
@@ -127,8 +130,8 @@
         recoveryStage = validStages.includes(rs) ? rs : "early";
         
         painScore = typeof ps === 'number' ? ps : 5;
-        symptoms = sym || '';
-        limitations = lim || '';
+        symptoms = sym || 'None specifically reported.';
+        limitations = lim || 'None specifically reported.';
 
         await generatePlan();
       }
@@ -233,12 +236,12 @@
         </div>
 
         <div>
-          <label class="label" for="symptoms">Current Symptoms</label>
+          <label class="label" for="symptoms">Current Symptoms *</label>
           <textarea id="symptoms" class="input-field" rows="2" placeholder="e.g., lower back stiffness, numbness in left leg…" bind:value={symptoms}></textarea>
         </div>
 
         <div>
-          <label class="label" for="limits">Physical Limitations</label>
+          <label class="label" for="limits">Physical Limitations *</label>
           <textarea id="limits" class="input-field" rows="2" placeholder="e.g., cannot bend forward, limited walking distance…" bind:value={limitations}></textarea>
         </div>
 

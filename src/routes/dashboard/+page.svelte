@@ -3,6 +3,7 @@
   import { authStore } from '$lib/stores/auth';
   import { getSymptomLogs, getExercisePlan, getExerciseCompletions, saveExercisePlan } from '$lib/firebase/firestore';
   import { generateRecoverySummary, generatePhysiotherapyPlan } from '$lib/ai/gemini';
+  import aiLogo from '$lib/assets/spine-app-ai-logo.jpg';
   import StatCard from '$lib/components/StatCard.svelte';
   import ProgressBar from '$lib/components/ProgressBar.svelte';
   import ExerciseCard from '$lib/components/ExerciseCard.svelte';
@@ -212,7 +213,7 @@
       <!-- AI Summary -->
       <div class="lg:col-span-2 card space-y-4">
         <div class="flex items-center gap-2">
-          <div class="w-8 h-8 bg-primary rounded-full flex items-center justify-center text-white text-xs font-semibold">SG</div>
+          <img src={aiLogo} alt="AI Avatar" class="w-8 h-8 rounded-full border border-border object-cover" />
           <h2 class="section-title">AI Weekly Insight</h2>
           <span class="badge badge-primary text-xs">SpineGuide</span>
         </div>

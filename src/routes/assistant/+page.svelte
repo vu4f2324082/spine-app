@@ -3,6 +3,7 @@
   import { authStore } from '$lib/stores/auth';
   import { createChatSession, sendMessage } from '$lib/ai/gemini';
   import { getExercisePlan } from '$lib/firebase/firestore';
+  import aiLogo from '$lib/assets/spine-app-ai-logo.jpg';
   import ChatBubble from '$lib/components/ChatBubble.svelte';
   import Alert from '$lib/components/Alert.svelte';
   import type { ChatMessage, ExercisePlan } from '$lib/types';
@@ -103,7 +104,7 @@
 <div class="flex flex-col h-[calc(100vh-5rem)] max-w-3xl mx-auto animate-fade-in">
   <!-- Header -->
   <div class="flex items-center gap-3 pb-4 border-b border-border mb-4">
-    <div class="w-10 h-10 bg-primary rounded-full flex items-center justify-center text-white font-semibold">SG</div>
+    <img src={aiLogo} alt="AI Avatar" class="w-10 h-10 object-cover rounded-full border border-border shadow-sm" />
     <div>
       <h1 class="font-semibold text-black">SpineGuide AI</h1>
       <p class="text-xs text-muted">Your personalized spine recovery companion</p>
@@ -142,7 +143,7 @@
 
     {#if isLoading}
       <div class="flex justify-start mb-4 px-2">
-        <div class="w-8 h-8 bg-primary rounded-full flex items-center justify-center text-white text-xs font-semibold flex-shrink-0 mr-2 shadow-sm">SG</div>
+        <img src={aiLogo} alt="AI Avatar" class="w-8 h-8 rounded-full flex-shrink-0 mr-2 mt-auto object-cover border border-border" />
         <div class="bg-white border border-border rounded-2xl rounded-tl-sm px-4 py-3 shadow-sm">
           <div class="flex gap-1.5 items-center h-4">
             <div class="w-1.5 h-1.5 bg-primary/60 rounded-full animate-bounce" style="animation-delay:0ms"></div>
