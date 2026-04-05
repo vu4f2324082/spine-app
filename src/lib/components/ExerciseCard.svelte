@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import type { Exercise } from '$lib/types';
+  import PoseTracker from './PoseTracker.svelte';
 
   interface Props {
     exercise: Exercise;
@@ -12,6 +13,12 @@
 
   let videoId = $state<string | null>(null);
   let loadingVideo = $state(false);
+  let showTracker = $state(false);
+
+  function handleTrackerComplete() {
+    if (onComplete) onComplete(exercise.id);
+    setTimeout(() => { showTracker = false; }, 3000);
+  }
 
   // Extract video ID from videoUrl if it exists, otherwise search for it
   onMount(async () => {
@@ -57,8 +64,19 @@
     </div>
     <p class="text-muted text-xs mt-1">{exercise.description}</p>
     
-    <!-- Video Player / Placeholder -->
-    {#if videoId}
+    <!-- Tracker or Video Player or Placeholder -->
+    {#if showTracker}
+      <div class="mt-3">
+        <PoseTracker 
+          exerciseName={exercise.name} 
+          description={exercise.description}
+          reps={exercise.reps}
+          onProgress={(p) => {}} 
+          onComplete={handleTrackerComplete} 
+          onClose={() => showTracker = false}
+        />
+      </div>
+    {:else if videoId}
       <div class="mt-3 overflow-hidden rounded-lg border border-border bg-black aspect-video">
         <iframe 
           width="100%" 
@@ -94,6 +112,16 @@
           <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="17 1 21 5 17 9"/><path d="M3 11V9a4 4 0 014-4h14"/><polyline points="7 23 3 19 7 15"/><path d="M21 13v2a4 4 0 01-4 4H3"/></svg>
           {exercise.reps}
         </span>
+      {/if}
+      <div class="flex-1"></div>
+      {#if !completed && !showTracker}
+        <button 
+          class="text-xs font-semibold bg-accent-green/10 text-accent-green hover:bg-accent-green hover:text-white px-3 py-1.5 rounded transition-colors flex items-center gap-1.5"
+          onclick={() => showTracker = true}
+        >
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"></path><circle cx="12" cy="13" r="4"></circle></svg>
+          Track via Webcam
+        </button>
       {/if}
     </div>
   </div>

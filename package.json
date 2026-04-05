@@ -25,6 +25,7 @@
 		"vite": "^7.3.1"
 	},
 	"dependencies": {
+		"@mediapipe/tasks-vision": "^0.10.34",
 		"@types/three": "^0.183.1",
 		"autoprefixer": "^10.4.27",
 		"chart.js": "^4.5.1",

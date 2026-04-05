@@ -1,0 +1,328 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI Spine Rehab - 4K Clear Tracking</title>
+    
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/pose/pose.js" crossorigin="anonymous"></script>
+
+    <style>
+        body { background: #0f172a; color: white; margin: 0; overflow: hidden; font-family: sans-serif; }
+        
+        /* 4K Clear Video Wrapper */
+        .video-wrapper { position: relative; width: 96vw; height: 75vh; margin: auto; border-radius: 15px; overflow: hidden; border: 5px solid #14b8a6; box-shadow: 0 10px 40px rgba(0,0,0,0.6); background: #000; }
+        
+        /* Force Hardware Acceleration and High Quality Rendering */
+        canvas { position: absolute; top: 0; left: 0; width: 100%; height: 100%; object-fit: cover; transform: scaleX(-1); image-rendering: optimizeQuality; }
+        video { display: none; } /* Hide the raw video, we use high-res canvas */
+        
+        #setup-overlay { position: fixed; inset: 0; background: #0b1120; z-index: 100; display: flex; flex-direction: column; justify-content: center; align-items: center; text-align: center; }
+        
+        .timer-badge { position: absolute; top: 25px; right: 25px; background: rgba(0,0,0,0.85); padding: 15px 40px; border-radius: 12px; border: 4px solid #9ca3af; font-size: 3.5rem; font-weight: bold; color: #9ca3af; z-index: 10; text-align: center; backdrop-filter: blur(8px); }
+        .timer-label { font-size: 1.2rem; text-transform: uppercase; letter-spacing: 2px; margin-bottom: -5px; }
+    </style>
+</head>
+<body class="flex flex-col items-center">
+
+    <div id="setup-overlay">
+        <h1 class="text-6xl font-extrabold text-teal-400 mb-4 tracking-wide">Spine Care AI HD</h1>
+        <p class="text-2xl text-gray-300 mb-10">Select hold time for 15 easy stretches.</p>
+        <input type="number" id="sec-input" value="30" class="w-40 p-4 text-5xl text-center bg-gray-800 border-4 border-teal-500 rounded-xl text-white mb-10 focus:outline-none">
+        <button onclick="startFullSession()" class="px-14 py-6 bg-teal-500 hover:bg-teal-400 text-black rounded-full text-3xl font-bold shadow-2xl transform hover:scale-105 transition-all">
+            Start Camera 🎥
+        </button>
+    </div>
+
+    <div class="w-[96vw] py-4 flex justify-between items-end">
+        <div>
+            <h2 id="ex-name" class="text-5xl font-extrabold text-teal-300 uppercase tracking-widest drop-shadow-md">Preparing...</h2>
+            <p id="ex-instruction" class="text-3xl text-gray-200 mt-2 font-light">Camera warming up.</p>
+        </div>
+        <div class="text-right">
+            <p class="text-teal-500 font-bold uppercase tracking-widest text-xl">Progress</p>
+            <p id="ex-count" class="text-4xl font-bold text-white">0 / 15</p>
+        </div>
+    </div>
+
+    <div class="video-wrapper" id="main-video-box">
+        <div id="timer-display" class="timer-badge">
+            <div id="timer-status" class="timer-label">WAITING</div>
+            <span id="timer-seconds">00</span>
+        </div>
+        <video id="input_video" autoplay playsinline></video>
+        <canvas id="output_canvas"></canvas>
+    </div>
+
+    <div id="status-box" class="w-[96vw] mt-5 bg-gray-800 py-5 rounded-xl border-b-8 border-teal-500 text-teal-300 text-4xl font-bold text-center shadow-lg transition-colors">
+        Waiting for you to start...
+    </div>
+
+    <script>
+        const videoElement = document.getElementById('input_video');
+        const canvasElement = document.getElementById('output_canvas');
+        const canvasCtx = canvasElement.getContext('2d', { alpha: false }); // Boosts performance and clarity
+        const statusBox = document.getElementById('status-box');
+        const timerSeconds = document.getElementById('timer-seconds');
+        const timerStatus = document.getElementById('timer-status');
+        const timerDisplay = document.getElementById('timer-display');
+        const videoWrapper = document.getElementById('main-video-box');
+
+        // 15 Super Easy Exercises
+        const exercises = [
+            { id: "neck_tilt", name: "Neck Tilt", hint: "Bend neck side to side." },
+            { id: "neck_look", name: "Look Left & Right", hint: "Turn your head slowly." },
+            { id: "shrugs", name: "Shoulder Shrugs", hint: "Lift shoulders up to ears." },
+            { id: "shoulder_rolls", name: "Shoulder Rolls", hint: "Roll shoulders backwards." },
+            { id: "arms_up", name: "Overhead Stretch", hint: "Raise both arms straight up." },
+            { id: "chest_open", name: "Chest Opener", hint: "Pull arms wide back." },
+            { id: "side_bend", name: "Gentle Side Bend", hint: "Lean your body sideways." },
+            { id: "twist", name: "Spinal Twist", hint: "Twist upper body left and right." },
+            { id: "forward_bend", name: "Half Forward Bend", hint: "Bend forward slowly." },
+            { id: "back_arch", name: "Gentle Back Arch", hint: "Hands on hips, lean back slightly." },
+            { id: "sky_reach", name: "Single Arm Reach", hint: "Reach one hand high." },
+            { id: "arm_circles", name: "Arm Circles", hint: "Draw circles with arms." },
+            { id: "knee_up", name: "Knee Raise", hint: "Lift one knee up." },
+            { id: "calf_stretch", name: "Heel Raises", hint: "Stand on your tiptoes." },
+            { id: "mountain_pose", name: "Perfect Posture", hint: "Stand tall and straight." }
+        ];
+
+        let currentIndex = 0;
+        let timePerEx = 30;
+        let timeLeft = 30;
+        let sessionActive = false;
+        let isPostureCorrect = false; 
+
+        // AI Voice Arrays
+        const goodMotivations = ["Perfect.", "Keep it up.", "Looking good.", "Hold that pose."];
+        const correctionPhrases = ["Adjust your posture.", "Please stretch more.", "I am waiting."];
+        let speechTimer = 0;
+
+        function speak(text) {
+            if (window.speechSynthesis.speaking) return; 
+            const utterance = new SpeechSynthesisUtterance(text);
+            utterance.rate = 0.9;
+            utterance.lang = 'en-US';
+            window.speechSynthesis.speak(utterance);
+        }
+
+        function startFullSession() {
+            timePerEx = parseInt(document.getElementById('sec-input').value) || 30;
+            document.getElementById('setup-overlay').style.display = 'none';
+            sessionActive = true;
+            runExercise(0);
+            
+            setInterval(() => {
+                if (!sessionActive) return;
+                speechTimer++;
+
+                if (isPostureCorrect && timeLeft > 0) {
+                    timeLeft--;
+                    timerSeconds.innerText = timeLeft < 10 ? "0" + timeLeft : timeLeft;
+                    
+                    timerDisplay.style.borderColor = "#22c55e"; timerDisplay.style.color = "#22c55e";
+                    timerStatus.innerText = "COUNTING"; videoWrapper.style.borderColor = "#22c55e";
+                    
+                    if (speechTimer % 7 === 0 && timeLeft > 5) {
+                        speak(goodMotivations[Math.floor(Math.random() * goodMotivations.length)]);
+                    }
+
+                    if (timeLeft === 0) {
+                        isPostureCorrect = false; 
+                        speak("Great job! Next exercise.");
+                        setTimeout(nextExercise, 2000); 
+                    }
+
+                } else if (!isPostureCorrect && timeLeft > 0) {
+                    timerDisplay.style.borderColor = "#ef4444"; timerDisplay.style.color = "#ef4444";
+                    timerStatus.innerText = "PAUSED"; videoWrapper.style.borderColor = "#ef4444";
+
+                    if (speechTimer % 6 === 0) {
+                        speak(correctionPhrases[Math.floor(Math.random() * correctionPhrases.length)]);
+                    }
+                }
+            }, 1000);
+        }
+
+        function runExercise(index) {
+            currentIndex = index;
+            timeLeft = timePerEx;
+            isPostureCorrect = false;
+            speechTimer = 0; 
+            
+            const ex = exercises[index];
+            timerSeconds.innerText = timeLeft < 10 ? "0" + timeLeft : timeLeft;
+            document.getElementById('ex-name').innerText = ex.name;
+            document.getElementById('ex-instruction').innerText = ex.hint;
+            document.getElementById('ex-count').innerText = `${index + 1} / 15`;
+            
+            speak(`Next, ${ex.name}. ${ex.hint}`);
+        }
+
+        function nextExercise() {
+            if (currentIndex < exercises.length - 1) {
+                runExercise(currentIndex + 1);
+            } else {
+                sessionActive = false;
+                updateUI("SESSION COMPLETE!", "green-400", "border-green-500");
+                timerStatus.innerText = "DONE"; timerSeconds.innerText = "00";
+                speak("Session complete. Great job!");
+            }
+        }
+
+        function updateUI(msg, color, border) {
+            statusBox.innerText = msg;
+            statusBox.className = `w-[96vw] mt-5 bg-gray-800 py-5 rounded-xl border-b-8 ${border} text-${color} text-4xl font-bold text-center shadow-lg transition-colors`;
+        }
+
+        function onResults(results) {
+            // Set canvas to actual video resolution for true HD/4K clarity
+            if (canvasElement.width !== videoElement.videoWidth) {
+                canvasElement.width = videoElement.videoWidth;
+                canvasElement.height = videoElement.videoHeight;
+            }
+
+            canvasCtx.save();
+            // Draw pure raw HD video
+            canvasCtx.drawImage(results.image, 0, 0, canvasElement.width, canvasElement.height);
+            
+            if (results.poseLandmarks && sessionActive) {
+                const nose = results.poseLandmarks[0];
+                
+                // 🔴 HIGHLIGHT TARGET PERSON (FACE RING + COUNT)
+                if (nose.visibility > 0.6) {
+                    const cx = nose.x * canvasElement.width;
+                    const cy = nose.y * canvasElement.height;
+                    
+                    const ringColor = isPostureCorrect ? "#22c55e" : "#eab308"; // Green if correct, Yellow if paused
+
+                    // Draw Head Ring
+                    canvasCtx.beginPath();
+                    canvasCtx.arc(cx, cy, 60, 0, 2 * Math.PI);
+                    canvasCtx.lineWidth = 6;
+                    canvasCtx.strokeStyle = ringColor;
+                    canvasCtx.stroke();
+
+                    // Draw Background Badge for Text
+                    canvasCtx.fillStyle = "rgba(0, 0, 0, 0.6)";
+                    canvasCtx.roundRect(cx - 35, cy - 110, 70, 35, 8);
+                    canvasCtx.fill();
+
+                    // Draw Player 1 Text
+                    canvasCtx.fillStyle = ringColor;
+                    canvasCtx.font = "bold 22px sans-serif";
+                    canvasCtx.fillText("👤 1", cx - 22, cy - 85);
+                }
+
+                // AI LOGIC VARIABLES
+                const leftEar = results.poseLandmarks[7];
+                const rightEar = results.poseLandmarks[8];
+                const leftShoulder = results.poseLandmarks[11];
+                const rightShoulder = results.poseLandmarks[12];
+                const leftWrist = results.poseLandmarks[15];
+                const rightWrist = results.poseLandmarks[16];
+                const leftHip = results.poseLandmarks[23];
+                const rightHip = results.poseLandmarks[24];
+                const leftKnee = results.poseLandmarks[25];
+
+                let currentFrameCorrect = false; 
+
+                if (nose.visibility < 0.6) {
+                    updateUI("Please step into the camera view.", "red-400", "border-red-500");
+                    isPostureCorrect = false; canvasCtx.restore(); return;
+                }
+
+                const currentExId = exercises[currentIndex].id;
+
+                // SIMPLE EXERCISE LOGIC
+                if (currentExId === "neck_tilt") {
+                    if (Math.abs(leftEar.y - leftShoulder.y) < 0.12 || Math.abs(rightEar.y - rightShoulder.y) < 0.12) {
+                        currentFrameCorrect = true; updateUI("Good neck tilt.", "green-400", "border-green-500");
+                    } else { updateUI("Tilt head sideways.", "white", "border-teal-500"); }
+                }
+                else if (currentExId === "neck_look") {
+                    if (Math.abs(nose.x - leftShoulder.x) < 0.05 || Math.abs(nose.x - rightShoulder.x) < 0.05) {
+                        currentFrameCorrect = true; updateUI("Good rotation.", "green-400", "border-green-500");
+                    } else { updateUI("Turn head left/right.", "white", "border-teal-500"); }
+                }
+                else if (currentExId === "shrugs" || currentExId === "shoulder_rolls") {
+                    if (leftShoulder.y < leftEar.y + 0.12) { currentFrameCorrect = true; updateUI("Good lift.", "green-400", "border-green-500");
+                    } else { currentFrameCorrect = true; updateUI("Roll your shoulders.", "white", "border-teal-500"); }
+                }
+                else if (currentExId === "arms_up") {
+                    if (leftWrist.y < leftShoulder.y && rightWrist.y < rightShoulder.y) {
+                        currentFrameCorrect = true; updateUI("Perfect Stretch!", "green-400", "border-green-500");
+                    } else { updateUI("Raise arms up.", "white", "border-teal-500"); }
+                } 
+                else if (currentExId === "chest_open") {
+                    if (Math.abs(leftWrist.x - rightWrist.x) > Math.abs(leftShoulder.x - rightShoulder.x) + 0.1) {
+                        currentFrameCorrect = true; updateUI("Great chest opening.", "green-400", "border-green-500");
+                    } else { updateUI("Pull arms wide.", "white", "border-teal-500"); }
+                }
+                else if (currentExId === "side_bend") {
+                    if (Math.abs(leftShoulder.x - leftHip.x) > 0.08 || Math.abs(rightShoulder.x - rightHip.x) > 0.08) {
+                        currentFrameCorrect = true; updateUI("Good side bend.", "green-400", "border-green-500");
+                    } else { updateUI("Lean sideways.", "white", "border-teal-500"); }
+                }
+                else if (currentExId === "twist") {
+                    if (Math.abs(leftShoulder.x - rightShoulder.x) < 0.13) {
+                        currentFrameCorrect = true; updateUI("Nice twist.", "green-400", "border-green-500");
+                    } else { updateUI("Twist body.", "white", "border-teal-500"); }
+                }
+                else if (currentExId === "forward_bend") {
+                    if (leftShoulder.y > leftHip.y - 0.25) {
+                        currentFrameCorrect = true; updateUI("Good forward bend.", "green-400", "border-green-500");
+                    } else { updateUI("Bend forward.", "white", "border-teal-500"); }
+                }
+                else if (currentExId === "back_arch") {
+                    if (leftWrist.y > leftHip.y - 0.1) {
+                        currentFrameCorrect = true; updateUI("Gentle back arch.", "green-400", "border-green-500");
+                    } else { updateUI("Lean back slightly.", "white", "border-teal-500"); }
+                }
+                else if (currentExId === "sky_reach") {
+                    if ((leftWrist.y < leftShoulder.y && rightWrist.y > rightShoulder.y) || (rightWrist.y < rightShoulder.y && leftWrist.y > leftShoulder.y)) {
+                        currentFrameCorrect = true; updateUI("Perfect reach.", "green-400", "border-green-500");
+                    } else { updateUI("Reach one hand up.", "white", "border-teal-500"); }
+                }
+                else if (currentExId === "arm_circles") {
+                    if (Math.abs(leftWrist.x - rightWrist.x) > 0.4) {
+                        currentFrameCorrect = true; updateUI("Good wide circles.", "green-400", "border-green-500");
+                    } else { updateUI("Draw circles with arms.", "white", "border-teal-500"); }
+                }
+                else if (currentExId === "knee_up") {
+                    if (leftKnee.y < leftHip.y + 0.1 || rightKnee.visibility < 0.5) { 
+                        currentFrameCorrect = true; updateUI("Good knee raise.", "green-400", "border-green-500");
+                    } else { updateUI("Lift knee up.", "white", "border-teal-500"); }
+                }
+                else if (currentExId === "calf_stretch") {
+                    currentFrameCorrect = true; updateUI("Rise on toes.", "green-400", "border-green-500");
+                }
+                else if (currentExId === "mountain_pose") {
+                    if (Math.abs(leftShoulder.y - rightShoulder.y) < 0.05) {
+                        currentFrameCorrect = true; updateUI("Perfect posture.", "green-400", "border-green-500");
+                    } else { updateUI("Stand tall.", "white", "border-teal-500"); }
+                }
+
+                isPostureCorrect = currentFrameCorrect;
+            } else {
+                isPostureCorrect = false;
+            }
+            canvasCtx.restore();
+        }
+
+        const pose = new Pose({locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/pose/${file}`});
+        pose.setOptions({ modelComplexity: 1, minDetectionConfidence: 0.7, minTrackingConfidence: 0.7 });
+        pose.onResults(onResults);
+
+        // Forced High Resolution Camera Request
+        const camera = new Camera(videoElement, {
+            onFrame: async () => { await pose.send({image: videoElement}); },
+            width: { ideal: 1920 },
+            height: { ideal: 1080 }
+        });
+        camera.start();
+    </script>
+</body>
+</html>
