@@ -6,6 +6,7 @@ import {
   getDocs,
   addDoc,
   updateDoc,
+  deleteDoc,
   query,
   where,
   orderBy,
@@ -128,15 +129,19 @@ export async function getExerciseCompletions(uid: string, date: string): Promise
 // ─── Chat Sessions ────────────────────────────────────────────────────────────
 
 export async function saveChatSession(session: ChatSession): Promise<string> {
-  if (session.id) {
-    await setDoc(doc(db, 'ai_chat_sessions', session.id), {
-      ...session,
+  // Never write the id field into the Firestore document itself
+  const { id, ...data } = session;
+
+  if (id) {
+    await setDoc(doc(db, 'ai_chat_sessions', id), {
+      ...data,
       updatedAt: serverTimestamp()
     }, { merge: true });
-    return session.id;
+    return id;
   }
+
   const ref = await addDoc(collection(db, 'ai_chat_sessions'), {
-    ...session,
+    ...data,
     createdAt: serverTimestamp(),
     updatedAt: serverTimestamp()
   });
@@ -144,20 +149,22 @@ export async function saveChatSession(session: ChatSession): Promise<string> {
 }
 
 export async function getChatSessions(uid: string): Promise<ChatSession[]> {
+  // Query without orderBy to avoid requiring a composite Firestore index.
+  // Sort client-side by updatedAt instead.
   const q = query(collection(db, 'ai_chat_sessions'), where('uid', '==', uid));
   const snap = await getDocs(q);
-  
+
   const sessions = snap.docs.map(d => ({ id: d.id, ...d.data() } as ChatSession));
-  
+
   return sessions.sort((a, b) => {
-    const timeA = a.updatedAt && typeof (a.updatedAt as any).toMillis === 'function' 
-      ? (a.updatedAt as any).toMillis() 
-      : new Date(a.updatedAt || 0).getTime();
-    const timeB = b.updatedAt && typeof (b.updatedAt as any).toMillis === 'function' 
-      ? (b.updatedAt as any).toMillis() 
-      : new Date(b.updatedAt || 0).getTime();
-    return timeB - timeA;
+    const toMs = (v: any) =>
+      v && typeof v.toMillis === 'function' ? v.toMillis() : new Date(v || 0).getTime();
+    return toMs(b.updatedAt) - toMs(a.updatedAt);
   });
+}
+
+export async function deleteChatSession(sessionId: string): Promise<void> {
+  await deleteDoc(doc(db, 'ai_chat_sessions', sessionId));
 }
 
 // ─── Doctor Notes ─────────────────────────────────────────────────────────────

@@ -32,24 +32,30 @@
   // Time & Session variables
   let totalTime = $state(30);
   let timeLeft = $state(30);
-  let speechTimer = 0;
+
+  // ── Speech throttle — only speak once per unique message ────────────────
+  let lastSpokenMsg = '';
+  let lastSpeechTime = 0;
+  const SPEECH_COOLDOWN_MS = 3500; // minimum ms between repeated speech
 
   // Rep counting
   let targetReps = $state(0);
   let completedReps = $state(0);
-  let useRepMode = $state(false); // true = count reps; false = count time (hold exercises)
-  let repPhase = $state<'neutral' | 'peak'>('neutral'); // two-phase rep detection state machine
-  let phaseHoldFrames = 0;      // frames spent in the current phase
-  const PHASE_HOLD_REQUIRED = 8; // must stay in the new phase for N frames before it counts
-
-  const goodMotivations = ["Perfect rep!", "Keep it up!", "Looking good.", "Hold that pose.", "Great form!", "One more!"];
-  const correctionPhrases = ["Perform the exercise.", "I don't see any movement.", "Please do the exercise.", "Move actively."];
+  let useRepMode = $state(false);
+  let repPhase = $state<'neutral' | 'peak'>('neutral');
+  let phaseHoldFrames = 0;
+  // Must stay in new phase for N frames before it counts (~0.4s at ~30fps)
+  const PHASE_HOLD_REQUIRED = 12;
 
   // ─── Exercise type classifier ─────────────────────────────────────────────
   type ExerciseKind =
     | 'neck_tilt'
     | 'neck_rotation'
     | 'shoulder_shrug'
+    | 'shoulder_roll'
+    | 'chin_tuck'
+    | 'scapular_squeeze'
+    | 'spine_extension'
     | 'arm_raise'
     | 'arm_circle'
     | 'chest_open'
@@ -58,13 +64,20 @@
     | 'forward_bend'
     | 'knee_raise'
     | 'heel_raise'
-    | 'hold'; // generic hold / breathing
+    | 'wall_pushup'
+    | 'hold';
 
   function classifyExercise(): ExerciseKind {
     const t = (exerciseName + ' ' + description).toLowerCase();
-    if ((t.includes('neck') || t.includes('head')) && (t.includes('tilt') || t.includes('bend') || t.includes('side'))) return 'neck_tilt';
+    if (t.includes('wall push') || t.includes('wall-push') || (t.includes('push') && t.includes('wall'))) return 'wall_pushup';
+    if (t.includes('chin tuck') || t.includes('chin-tuck') || (t.includes('chin') && (t.includes('tuck') || t.includes('retract')))) return 'chin_tuck';
+    if (t.includes('scapular') || t.includes('shoulder blade') || t.includes('rhomboid') || (t.includes('shoulder') && t.includes('squeeze'))) return 'scapular_squeeze';
+    if (t.includes('extension') && (t.includes('spine') || t.includes('spinal') || t.includes('back') || t.includes('seated'))) return 'spine_extension';
+    if ((t.includes('neck') || t.includes('head') || t.includes('trapezius') || t.includes('upper trap')) &&
+        (t.includes('tilt') || t.includes('bend') || t.includes('side') || t.includes('stretch') || t.includes('lateral'))) return 'neck_tilt';
     if ((t.includes('neck') || t.includes('head')) && (t.includes('rotat') || t.includes('turn') || t.includes('look'))) return 'neck_rotation';
-    if (t.includes('shrug') || (t.includes('shoulder') && t.includes('roll'))) return 'shoulder_shrug';
+    if ((t.includes('shoulder') && t.includes('roll')) || t.includes('shoulder-roll')) return 'shoulder_roll';
+    if (t.includes('shrug')) return 'shoulder_shrug';
     if (t.includes('arm circle')) return 'arm_circle';
     if (t.includes('arm') && (t.includes('raise') || t.includes('up') || t.includes('overhead') || t.includes('lift'))) return 'arm_raise';
     if (t.includes('chest') && (t.includes('open') || t.includes('stretch') || t.includes('expand'))) return 'chest_open';
@@ -76,54 +89,68 @@
     return 'hold';
   }
 
+  function computeAngleDeg(A: any, B: any, C: any): number {
+    const BAx = A.x - B.x, BAy = A.y - B.y;
+    const BCx = C.x - B.x, BCy = C.y - B.y;
+    const dot = BAx * BCx + BAy * BCy;
+    const mag = Math.sqrt(BAx*BAx + BAy*BAy) * Math.sqrt(BCx*BCx + BCy*BCy);
+    if (mag === 0) return 180;
+    return Math.acos(Math.max(-1, Math.min(1, dot / mag))) * (180 / Math.PI);
+  }
+
   // ─── Per-exercise movement detection ─────────────────────────────────────
   // Returns:
-  //   phase: 'neutral' | 'peak'  — which phase of movement the person is in
-  //   correct: boolean            — are they doing the right shape for this phase?
-  //   msg: string
+  //   phase:   'neutral' | 'peak'  — which phase they are headed toward
+  //   correct: boolean             — should timer count? (true in BOTH phases for active exercises)
+  //   msg:     string              — display message
+  //
+  // KEY FIX: for exercises where the person continuously moves (neck_tilt,
+  // neck_rotation, shoulder_shrug, etc.) the neutral phase BETWEEN reps is
+  // also "correct: true" so the timer never pauses and the instruction does
+  // NOT endlessly fire the correction feedback. The "Tilt head to one side"
+  // message only shows briefly while returning to centre between reps.
   function detectMovementPhase(
     lm: any,
     currentPhase: 'neutral' | 'peak',
     kind: ExerciseKind
   ): { phase: 'neutral' | 'peak'; correct: boolean; msg: string } {
 
-    const nose        = lm[0];
-    const leftEar     = lm[7];
-    const rightEar    = lm[8];
+    const nose          = lm[0];
+    const leftEar       = lm[7];
+    const rightEar      = lm[8];
     const leftShoulder  = lm[11];
     const rightShoulder = lm[12];
-    const leftElbow   = lm[13];
-    const rightElbow  = lm[14];
-    const leftWrist   = lm[15];
-    const rightWrist  = lm[16];
-    const leftHip     = lm[23];
-    const rightHip    = lm[24];
-    const leftKnee    = lm[25];
-    const rightKnee   = lm[26];
-    const leftAnkle   = lm[27];
-    const rightAnkle  = lm[28];
+    const leftElbow     = lm[13];
+    const rightElbow    = lm[14];
+    const leftWrist     = lm[15];
+    const rightWrist    = lm[16];
+    const leftHip       = lm[23];
+    const rightHip      = lm[24];
+    const leftKnee      = lm[25];
+    const rightKnee     = lm[26];
+    const leftAnkle     = lm[27];
+    const rightAnkle    = lm[28];
 
     const midShoulderY = (leftShoulder.y + rightShoulder.y) / 2;
     const midShoulderX = (leftShoulder.x + rightShoulder.x) / 2;
     const midHipY = (leftHip.y + rightHip.y) / 2;
 
     switch (kind) {
+
       // ── Neck Tilt (head side-to-side) ─────────────────────────────────
+      // FIX: neutral is also "correct:true" so timer runs; thresholds loosened
+      // so they work across a range of distances / camera positions.
       case 'neck_tilt': {
-        // Neutral: head roughly centred (nose X close to shoulder mid)
-        // Peak: clear head tilt — nose drops/rises relative to ears asymmetrically
-        const noseToMidX = Math.abs(nose.x - midShoulderX);
-        const earAsymmetry = Math.abs(leftEar.y - rightEar.y); // big when tilted
+        const earAsymmetry = Math.abs(leftEar.y - rightEar.y);
 
         if (currentPhase === 'neutral') {
-          // Looking for a tilt START: ear asymmetry must be large
-          if (earAsymmetry > 0.07) {
+          if (earAsymmetry > 0.055) {
             return { phase: 'peak', correct: true, msg: 'Good tilt — hold it!' };
           }
-          return { phase: 'neutral', correct: false, msg: 'Tilt head to one side.' };
+          // Timer still runs while returning to centre
+          return { phase: 'neutral', correct: true, msg: 'Tilt your head slowly to one side.' };
         } else {
-          // At peak — must return to centre
-          if (earAsymmetry < 0.03 && noseToMidX < 0.06) {
+          if (earAsymmetry < 0.025) {
             return { phase: 'neutral', correct: true, msg: 'Back to centre — rep counted!' };
           }
           return { phase: 'peak', correct: true, msg: 'Good — now return to centre.' };
@@ -131,194 +158,339 @@
       }
 
       // ── Neck Rotation (chin turns left/right) ──────────────────────────
+      // FIX: same neutral-correct fix; thresholds calibrated for webcam distance
       case 'neck_rotation': {
-        const noseToMidX = nose.x - midShoulderX; // positive = right, negative = left
-        const absOffset = Math.abs(noseToMidX);
+        // nose vs shoulder midpoint X offset
+        const noseOffsetX = Math.abs(nose.x - midShoulderX);
 
         if (currentPhase === 'neutral') {
-          if (absOffset > 0.08) {
-            return { phase: 'peak', correct: true, msg: 'Good turn — hold briefly!' };
+          if (noseOffsetX > 0.06) {
+            return { phase: 'peak', correct: true, msg: 'Good — hold the turn briefly!' };
           }
-          return { phase: 'neutral', correct: false, msg: 'Turn head left or right.' };
+          return { phase: 'neutral', correct: true, msg: 'Turn your head slowly left or right.' };
         } else {
-          if (absOffset < 0.03) {
+          if (noseOffsetX < 0.025) {
             return { phase: 'neutral', correct: true, msg: 'Back to centre — rep!' };
           }
-          return { phase: 'peak', correct: true, msg: 'Now return to centre.' };
+          return { phase: 'peak', correct: true, msg: 'Now slowly return to centre.' };
         }
       }
 
       // ── Shoulder Shrug ─────────────────────────────────────────────────
+      // FIX: use DELTA-based from shrugBaseline so people with big necks
+      // are not penalised. Neutral is correct too so timer doesn't stall.
       case 'shoulder_shrug': {
-        // Peak: shoulders raised — shoulder Y is significantly above resting Y
-        // Measure distance from shoulder to ear: smaller = shoulders raised
         const leftGap  = Math.abs(leftEar.y  - leftShoulder.y);
         const rightGap = Math.abs(rightEar.y - rightShoulder.y);
         const avgGap = (leftGap + rightGap) / 2;
 
+        if (!shrugCalibDone) {
+          return { phase: 'neutral', correct: false, msg: `Calibrating — drop shoulders naturally… (${shrugCalibFrames}/${SHRUG_CALIB_FRAMES})` };
+        }
+        // Shrug detected when gap shrinks by SHRUG_DELTA from resting
+        const shrinkDelta = shrugBaseline - avgGap;
+
         if (currentPhase === 'neutral') {
-          if (avgGap < 0.10) {  // shoulders raised close to ears
-            return { phase: 'peak', correct: true, msg: 'Shrug held — good!' };
+          if (shrinkDelta > SHRUG_RAISE_DELTA) {
+            return { phase: 'peak', correct: true, msg: 'Shrug held — nice!' };
           }
-          return { phase: 'neutral', correct: false, msg: 'Shrug both shoulders up toward ears.' };
+          return { phase: 'neutral', correct: true, msg: 'Shrug both shoulders up toward your ears.' };
         } else {
-          if (avgGap > 0.15) {  // clearly dropped back down
-            return { phase: 'neutral', correct: true, msg: 'Low — rep counted!' };
+          if (shrinkDelta < SHRUG_RELEASE_DELTA) {
+            return { phase: 'neutral', correct: true, msg: 'Lowered — rep counted!' };
           }
-          return { phase: 'peak', correct: true, msg: 'Now lower your shoulders.' };
+          return { phase: 'peak', correct: true, msg: 'Now lower your shoulders slowly.' };
         }
       }
 
       // ── Arm Raise (both arms overhead) ────────────────────────────────
       case 'arm_raise': {
-        const bothUp = leftWrist.y < leftShoulder.y - 0.05 && rightWrist.y < rightShoulder.y - 0.05;
-        const bothDown = leftWrist.y > leftShoulder.y + 0.10 && rightWrist.y > rightShoulder.y + 0.10;
+        // Above shoulder = smaller Y (inverted screen coords)
+        const leftUp   = leftWrist.y  < leftShoulder.y  - 0.04;
+        const rightUp  = rightWrist.y < rightShoulder.y - 0.04;
+        // Either arm up is valid (single-arm raise exercises)
+        const anyUp   = leftUp || rightUp;
+        const bothDown = leftWrist.y > leftShoulder.y + 0.08 && rightWrist.y > rightShoulder.y + 0.08;
 
         if (currentPhase === 'neutral') {
-          if (bothUp) {
-            return { phase: 'peak', correct: true, msg: 'Arms high — great!' };
-          }
-          return { phase: 'neutral', correct: false, msg: 'Raise both arms above shoulders.' };
+          if (anyUp) return { phase: 'peak', correct: true, msg: 'Arms raised — great!' };
+          return { phase: 'neutral', correct: true, msg: 'Raise your arms above shoulder height.' };
         } else {
-          if (bothDown) {
-            return { phase: 'neutral', correct: true, msg: 'Lowered — rep counted!' };
-          }
-          return { phase: 'peak', correct: true, msg: 'Lower arms back down.' };
+          if (bothDown) return { phase: 'neutral', correct: true, msg: 'Lowered — rep counted!' };
+          return { phase: 'peak', correct: true, msg: 'Lower arms back to your sides.' };
         }
       }
 
-      // ── Arm Circles (arms wide and MOVING) ────────────────────────────
+      // ── Arm Circles ────────────────────────────────────────────────────
       case 'arm_circle': {
-        const armsWide = Math.abs(leftWrist.x - rightWrist.x) > 0.45;
+        const armsWide = Math.abs(leftWrist.x - rightWrist.x) > 0.40;
         if (currentPhase === 'neutral') {
           if (armsWide) return { phase: 'peak', correct: true, msg: 'Wide — keep circling!' };
-          return { phase: 'neutral', correct: false, msg: 'Spread arms wide to start circles.' };
+          return { phase: 'neutral', correct: true, msg: 'Spread both arms wide to circle.' };
         } else {
           if (!armsWide) return { phase: 'neutral', correct: true, msg: 'Good circle — rep!' };
-          return { phase: 'peak', correct: true, msg: 'Continue circling.' };
+          return { phase: 'peak', correct: true, msg: 'Continue the full circle.' };
         }
       }
 
       // ── Chest Open / Chest Stretch ─────────────────────────────────────
       case 'chest_open': {
         const shoulderWidth = Math.abs(leftShoulder.x - rightShoulder.x);
-        const wristWidth = Math.abs(leftWrist.x - rightWrist.x);
-        const openEnough = wristWidth > shoulderWidth + 0.20; // wrists clearly wider than shoulders
+        const wristWidth    = Math.abs(leftWrist.x    - rightWrist.x);
+        const openEnough    = wristWidth > shoulderWidth + 0.18;
 
         if (currentPhase === 'neutral') {
           if (openEnough) return { phase: 'peak', correct: true, msg: 'Chest open — hold!' };
-          return { phase: 'neutral', correct: false, msg: 'Pull arms back wide to open chest.' };
+          return { phase: 'neutral', correct: true, msg: 'Pull both arms wide to open your chest.' };
         } else {
           if (!openEnough) return { phase: 'neutral', correct: true, msg: 'Good — rep counted!' };
-          return { phase: 'peak', correct: true, msg: 'Slowly bring arms in.' };
+          return { phase: 'peak', correct: true, msg: 'Bring arms slowly back in.' };
         }
       }
 
       // ── Side Bend ─────────────────────────────────────────────────────
       case 'side_bend': {
-        // Detect lateral lean: large difference in shoulder-to-hip horizontal distance on one side
+        // When bending sideways, one shoulder moves laterally over the hip on that side
         const leftLean  = Math.abs(leftShoulder.x  - leftHip.x);
         const rightLean = Math.abs(rightShoulder.x - rightHip.x);
-        const maxLean = Math.max(leftLean, rightLean);
+        const maxLean   = Math.max(leftLean, rightLean);
 
         if (currentPhase === 'neutral') {
-          if (maxLean > 0.15) {
-            return { phase: 'peak', correct: true, msg: 'Good side bend!' };
-          }
-          return { phase: 'neutral', correct: false, msg: 'Bend sideways — lean further.' };
+          if (maxLean > 0.13) return { phase: 'peak', correct: true, msg: 'Good side bend — hold!' };
+          return { phase: 'neutral', correct: true, msg: 'Bend sideways from your waist.' };
         } else {
-          if (maxLean < 0.06) {
-            return { phase: 'neutral', correct: true, msg: 'Back upright — rep counted!' };
-          }
-          return { phase: 'peak', correct: true, msg: 'Return to upright.' };
+          if (maxLean < 0.05) return { phase: 'neutral', correct: true, msg: 'Back upright — rep counted!' };
+          return { phase: 'peak', correct: true, msg: 'Return to upright slowly.' };
         }
       }
 
       // ── Trunk Twist ───────────────────────────────────────────────────
+      // FIX: removed shoulder-width check which fired for any off-centre person.
       case 'trunk_twist': {
-        // When twisting, one shoulder comes forward (toward camera) reducing apparent shoulder width
-        // or shoulder x-midpoint shifts vs hip midpoint
         const shoulderMidX = (leftShoulder.x + rightShoulder.x) / 2;
-        const hipMidX = (leftHip.x + rightHip.x) / 2;
-        const twist = Math.abs(shoulderMidX - hipMidX);
-        const shoulderWidth = Math.abs(leftShoulder.x - rightShoulder.x);
+        const hipMidX      = (leftHip.x      + rightHip.x)      / 2;
+        const twist        = Math.abs(shoulderMidX - hipMidX);
 
         if (currentPhase === 'neutral') {
-          // Clear twist: shoulder width narrows OR centroid shifts relative to hips
-          if (shoulderWidth < 0.10 || twist > 0.08) {
-            return { phase: 'peak', correct: true, msg: 'Good twist — hold!' };
-          }
-          return { phase: 'neutral', correct: false, msg: 'Rotate your torso left or right.' };
+          if (twist > 0.07) return { phase: 'peak', correct: true, msg: 'Good twist — hold!' };
+          return { phase: 'neutral', correct: true, msg: 'Rotate your torso left or right.' };
         } else {
-          if (shoulderWidth > 0.16 && twist < 0.04) {
-            return { phase: 'neutral', correct: true, msg: 'Centre — rep counted!' };
-          }
+          if (twist < 0.03) return { phase: 'neutral', correct: true, msg: 'Centre — rep counted!' };
           return { phase: 'peak', correct: true, msg: 'Unwind back to centre.' };
         }
       }
 
       // ── Forward Bend ──────────────────────────────────────────────────
       case 'forward_bend': {
-        // Shoulders descend toward hips — shoulder Y approaches or exceeds hip Y
-        const shoulderToHipDist = midHipY - midShoulderY; // small/negative = bent forward
+        const shoulderToHipDist = midHipY - midShoulderY;
 
         if (currentPhase === 'neutral') {
-          if (shoulderToHipDist < 0.10) { // shoulders very close to hips = good bend
-            return { phase: 'peak', correct: true, msg: 'Good bend — hold!' };
-          }
-          return { phase: 'neutral', correct: false, msg: 'Bend forward from the waist.' };
+          if (shoulderToHipDist < 0.12) return { phase: 'peak', correct: true, msg: 'Good bend — hold!' };
+          return { phase: 'neutral', correct: true, msg: 'Bend forward from the waist.' };
         } else {
-          if (shoulderToHipDist > 0.20) {
-            return { phase: 'neutral', correct: true, msg: 'Back up — rep counted!' };
-          }
+          if (shoulderToHipDist > 0.22) return { phase: 'neutral', correct: true, msg: 'Back up — rep counted!' };
           return { phase: 'peak', correct: true, msg: 'Slowly stand back upright.' };
         }
       }
 
       // ── Knee Raise / Marching ─────────────────────────────────────────
       case 'knee_raise': {
-        const leftKneeUp  = (leftHip.y  - leftKnee.y)  > 0.08;
-        const rightKneeUp = (rightHip.y - rightKnee.y) > 0.08;
-        const eitherUp = leftKneeUp || rightKneeUp;
-        const bothDown = (leftHip.y - leftKnee.y) < -0.05 && (rightHip.y - rightKnee.y) < -0.05;
+        const leftKneeUp  = (leftHip.y  - leftKnee.y)  > 0.07;
+        const rightKneeUp = (rightHip.y - rightKnee.y) > 0.07;
+        const eitherUp    = leftKneeUp || rightKneeUp;
+        const bothDown    = (leftKnee.y - leftHip.y) > 0.03 && (rightKnee.y - rightHip.y) > 0.03;
 
         if (currentPhase === 'neutral') {
           if (eitherUp) return { phase: 'peak', correct: true, msg: 'Knee up — great!' };
-          return { phase: 'neutral', correct: false, msg: 'Lift one knee up high.' };
+          return { phase: 'neutral', correct: true, msg: 'Lift one knee up toward your chest.' };
         } else {
           if (bothDown) return { phase: 'neutral', correct: true, msg: 'Leg down — rep counted!' };
-          return { phase: 'peak', correct: true, msg: 'Lower leg back down.' };
+          return { phase: 'peak', correct: true, msg: 'Lower your leg back down.' };
         }
       }
 
       // ── Heel Raise / Calf Raise ───────────────────────────────────────
       case 'heel_raise': {
-        // Hard to detect precisely — look for ankle Y movement relative to knee
         const leftCalfLen  = Math.abs(leftAnkle.y  - leftKnee.y);
         const rightCalfLen = Math.abs(rightAnkle.y - rightKnee.y);
-        // When rising on toes, ankles appear higher (smaller y diff vs knee)
-        const avgCalfLen = (leftCalfLen + rightCalfLen) / 2;
+        const avgCalfLen   = (leftCalfLen + rightCalfLen) / 2;
 
         if (currentPhase === 'neutral') {
           if (avgCalfLen < 0.22) return { phase: 'peak', correct: true, msg: 'On toes — hold!' };
-          return { phase: 'neutral', correct: false, msg: 'Rise up onto your toes.' };
+          return { phase: 'neutral', correct: true, msg: 'Rise up onto your toes.' };
         } else {
           if (avgCalfLen > 0.28) return { phase: 'neutral', correct: true, msg: 'Lowered — rep!' };
           return { phase: 'peak', correct: true, msg: 'Lower your heels slowly.' };
         }
       }
 
-      // ── Hold exercises (breathing, planks, etc.) ──────────────────────
+      // ── Wall Pushup ───────────────────────────────────────────────────
+      case 'wall_pushup': {
+        const leftAngle  = computeAngleDeg(leftShoulder,  leftElbow,  leftWrist);
+        const rightAngle = computeAngleDeg(rightShoulder, rightElbow, rightWrist);
+
+        const leftVis  = (leftElbow.visibility  ?? 1) > 0.4;
+        const rightVis = (rightElbow.visibility ?? 1) > 0.4;
+
+        const elbowAngle = leftVis && rightVis
+          ? (leftAngle + rightAngle) / 2
+          : leftVis ? leftAngle : rightAngle;
+
+        const leftWristDropped  = leftVis  && (leftWrist.y  - leftElbow.y)  > 0.03;
+        const rightWristDropped = rightVis && (rightWrist.y - rightElbow.y) > 0.03;
+        const wristsDrooping    = leftWristDropped || rightWristDropped;
+
+        const leftWristLevel  = leftVis  && (leftWrist.y  - leftElbow.y) < -0.01;
+        const rightWristLevel = rightVis && (rightWrist.y - rightElbow.y) < -0.01;
+        const wristsLevel     = leftWristLevel || rightWristLevel;
+
+        const isBent     = elbowAngle < 115 || wristsDrooping;
+        const isExtended = elbowAngle > 150 || wristsLevel;
+
+        if (currentPhase === 'neutral') {
+          if (isBent) return { phase: 'peak', correct: true, msg: 'Good — elbows bent!' };
+          return { phase: 'neutral', correct: true, msg: 'Lean into the wall — bend your elbows.' };
+        } else {
+          if (isExtended) return { phase: 'neutral', correct: true, msg: 'Arms straight — rep counted!' };
+          return { phase: 'peak', correct: true, msg: 'Push back — straighten arms fully.' };
+        }
+      }
+
+      // ── Chin Tuck ─────────────────────────────────────────────────────
+      case 'chin_tuck': {
+        const earMidY      = (leftEar.y + rightEar.y) / 2;
+        const noseBelowEar = nose.y - earMidY;
+
+        if (!chinCalibDone) {
+          return { phase: 'neutral', correct: false, msg: `Calibrating — sit naturally… (${chinCalibFrames}/${CHIN_CALIB_FRAMES})` };
+        }
+
+        const tuckDelta = noseBelowEar - chinBaseline;
+
+        if (currentPhase === 'neutral') {
+          if (tuckDelta > CHIN_TUCK_DELTA) {
+            return { phase: 'peak', correct: true, msg: 'Good chin tuck — hold briefly!' };
+          }
+          return { phase: 'neutral', correct: true, msg: 'Draw chin straight back — "double chin" motion.' };
+        } else {
+          if (tuckDelta < CHIN_RELEASE_DELTA) {
+            return { phase: 'neutral', correct: true, msg: 'Released — rep counted!' };
+          }
+          return { phase: 'peak', correct: true, msg: 'Hold the tuck, then slowly release.' };
+        }
+      }
+
+      // ── Scapular Squeeze ──────────────────────────────────────────────
+      case 'scapular_squeeze': {
+        const shoulderWidth = Math.abs(leftShoulder.x - rightShoulder.x);
+        const elbowWidth    = Math.abs(leftElbow.x    - rightElbow.x);
+        const wristWidth    = Math.abs(leftWrist.x    - rightWrist.x);
+
+        const isSqueezed = elbowWidth > shoulderWidth + 0.09 && wristWidth > shoulderWidth + 0.07;
+        const isRelaxed  = elbowWidth < shoulderWidth + 0.04 && wristWidth < shoulderWidth + 0.06;
+
+        if (currentPhase === 'neutral') {
+          if (isSqueezed) return { phase: 'peak', correct: true, msg: 'Great squeeze — blades together!' };
+          return { phase: 'neutral', correct: true, msg: 'Pull elbows back — squeeze your shoulder blades.' };
+        } else {
+          if (isRelaxed) return { phase: 'neutral', correct: true, msg: 'Relaxed — rep counted!' };
+          return { phase: 'peak', correct: true, msg: 'Hold the squeeze, then slowly release.' };
+        }
+      }
+
+      // ── Seated Spine Extension ────────────────────────────────────────
+      case 'spine_extension': {
+        const trunkHeight       = midHipY - midShoulderY;
+        const noseAboveShoulder = midShoulderY - nose.y;
+
+        if (!spineCalibDone) {
+          return { phase: 'neutral', correct: false, msg: `Calibrating posture — sit naturally… (${spineCalibFrames}/${SPINE_CALIB_FRAMES})` };
+        }
+
+        const trunkDelta = trunkHeight - spineBaseline;
+
+        if (currentPhase === 'neutral') {
+          if (trunkDelta > SPINE_PEAK_DELTA && noseAboveShoulder > 0.12) {
+            return { phase: 'peak', correct: true, msg: 'Spine extended — hold tall!' };
+          }
+          return { phase: 'neutral', correct: true, msg: 'Sit tall — extend your spine upward.' };
+        } else {
+          if (trunkDelta < SPINE_NEUTRAL_DELTA) {
+            return { phase: 'neutral', correct: true, msg: 'Relaxed — rep counted!' };
+          }
+          return { phase: 'peak', correct: true, msg: 'Hold the extension, then relax.' };
+        }
+      }
+
+      // ── Shoulder Roll ─────────────────────────────────────────────────
+      case 'shoulder_roll': {
+        const midShY = (leftShoulder.y + rightShoulder.y) / 2;
+
+        if (!rollCalibDone) {
+          return { phase: 'neutral', correct: false, msg: `Calibrating — relax your shoulders… (${rollCalibFrames}/${ROLL_CALIB_FRAMES})` };
+        }
+
+        const raiseDelta = rollBaseline - midShY;
+
+        if (currentPhase === 'neutral') {
+          if (raiseDelta > ROLL_RAISE_DELTA) {
+            return { phase: 'peak', correct: true, msg: 'Shoulders up — keep rolling back and down!' };
+          }
+          return { phase: 'neutral', correct: true, msg: 'Roll shoulders: up → back → down → forward.' };
+        } else {
+          if (raiseDelta < ROLL_RELEASE_DELTA) {
+            return { phase: 'neutral', correct: true, msg: 'Full circle — rep counted!' };
+          }
+          return { phase: 'peak', correct: true, msg: 'Continue rolling downward and forward.' };
+        }
+      }
+
+      // ── Hold exercises ────────────────────────────────────────────────
       case 'hold':
       default: {
-        // For hold exercises, require the user to be visibly MOVING at SOME point.
-        // We just return correct so the timer ticks (handled by motion guard outside).
         return { phase: currentPhase, correct: true, msg: 'Hold the position actively.' };
       }
     }
   }
 
   let exerciseKind: ExerciseKind = 'hold';
+
+  // ── Calibration baselines ──────────────────────────────────────────────────
+  // Spine extension
+  let spineCalibDone   = false;
+  let spineCalibFrames = 0;
+  let spineCalibAccum  = 0;
+  let spineBaseline    = 0;
+  const SPINE_CALIB_FRAMES  = 20;
+  const SPINE_PEAK_DELTA    = 0.06;
+  const SPINE_NEUTRAL_DELTA = 0.02;
+
+  // Chin tuck
+  let chinCalibDone   = false;
+  let chinCalibFrames = 0;
+  let chinCalibAccum  = 0;
+  let chinBaseline    = 0;
+  const CHIN_CALIB_FRAMES  = 20;
+  const CHIN_TUCK_DELTA    = 0.030;
+  const CHIN_RELEASE_DELTA = 0.008;
+
+  // Shoulder roll
+  let rollCalibDone   = false;
+  let rollCalibFrames = 0;
+  let rollCalibAccum  = 0;
+  let rollBaseline    = 0;
+  const ROLL_CALIB_FRAMES  = 20;
+  const ROLL_RAISE_DELTA   = 0.040;
+  const ROLL_RELEASE_DELTA = 0.010;
+
+  // Shoulder shrug – new delta-based calibration
+  let shrugCalibDone   = false;
+  let shrugCalibFrames = 0;
+  let shrugCalibAccum  = 0;
+  let shrugBaseline    = 0;
+  const SHRUG_CALIB_FRAMES  = 20;
+  const SHRUG_RAISE_DELTA   = 0.045; // gap must shrink by this much from resting
+  const SHRUG_RELEASE_DELTA = 0.010;
 
   onMount(async () => {
     exerciseKind = classifyExercise();
@@ -329,16 +501,13 @@
       if (repMatch) parsedReps = Math.max(1, parseInt(repMatch[1]));
     }
 
-    // Determine if this exercise is rep-based or time-based
     const isHoldExercise = exerciseKind === 'hold';
     useRepMode = parsedReps > 0 && !isHoldExercise;
 
     if (useRepMode) {
       targetReps = parsedReps;
-      // totalTime used only as a progress reference for the bar; doesn't count down
-      totalTime = parsedReps; // 1 unit per rep
+      totalTime  = parsedReps;
     } else {
-      // Time-based: parse seconds from duration or description
       let foundTime = 30;
       if (duration) {
         const durMatch = duration.match(/(\d+)\s*(sec|min|m|s)/i);
@@ -363,7 +532,7 @@
         }
       }
       totalTime = foundTime;
-      timeLeft = foundTime;
+      timeLeft  = foundTime;
     }
 
     if (canvasElement) {
@@ -378,13 +547,22 @@
     window.speechSynthesis.cancel();
   });
 
+  // ── Smart speech: never repeat the same message within cooldown window ──
   function speakInstruction(text: string) {
     if (!window.speechSynthesis) return;
-    if (window.speechSynthesis.speaking) return;
+    const now = Date.now();
+    const isSame = text === lastSpokenMsg;
+    const tooSoon = now - lastSpeechTime < SPEECH_COOLDOWN_MS;
+    // Allow immediate speech only if message is different OR cooldown passed
+    if (isSame && tooSoon) return;
+    if (window.speechSynthesis.speaking && tooSoon) return;
+    window.speechSynthesis.cancel();
     const utterance = new SpeechSynthesisUtterance(text);
     utterance.rate = 0.9;
     utterance.lang = 'en-US';
     window.speechSynthesis.speak(utterance);
+    lastSpokenMsg  = text;
+    lastSpeechTime = now;
   }
 
   async function initTracker() {
@@ -409,7 +587,7 @@
 
   async function startCamera() {
     try {
-      stream = await navigator.mediaDevices.getUserMedia({ video: { width: { ideal: 1920 }, height: { ideal: 1080 } } });
+      stream = await navigator.mediaDevices.getUserMedia({ video: { width: { ideal: 1280 }, height: { ideal: 720 } } });
       if (videoElement) {
         videoElement.srcObject = stream;
         videoElement.play();
@@ -430,43 +608,38 @@
     webcamRunning = false;
     if (animationFrameId) cancelAnimationFrame(animationFrameId);
     if (timerInterval) clearInterval(timerInterval);
-    if (stream) {
-      stream.getTracks().forEach(track => track.stop());
-    }
-    if (poseLandmarker) {
-      poseLandmarker.close();
-    }
+    if (stream) stream.getTracks().forEach(t => t.stop());
+    if (poseLandmarker) poseLandmarker.close();
   }
 
-  // ── Timer mode (hold exercises) ─────────────────────────────────────────
+  // ── Timer mode ──────────────────────────────────────────────────────────
+  let speechTimerTick = 0;
+  const goodMotivations = ["Perfect form!", "Keep it up!", "Looking great.", "Hold that pose.", "Excellent!", "One more!"];
+
   function startTimer() {
     timerInterval = setInterval(() => {
       if (!webcamRunning || hasCompleted) return;
-      speechTimer++;
+      speechTimerTick++;
 
       if (isPostureCorrect && timeLeft > 0) {
         timeLeft--;
         trackingProgress = ((totalTime - timeLeft) / totalTime) * 100;
         onProgress(trackingProgress);
 
-        if (speechTimer % 7 === 0 && timeLeft > 5) {
+        // Motivational speech every ~8s
+        if (speechTimerTick % 8 === 0 && timeLeft > 5) {
           speakInstruction(goodMotivations[Math.floor(Math.random() * goodMotivations.length)]);
         }
 
-        if (timeLeft <= 0) {
-          finishExercise();
-        }
-      } else if (!isPostureCorrect && timeLeft > 0) {
-        if (speechTimer % 6 === 0) {
-          speakInstruction(correctionPhrases[Math.floor(Math.random() * correctionPhrases.length)]);
-        }
+        if (timeLeft <= 0) finishExercise();
       }
+      // If not correct (calibrating), timer simply waits — no nagging voice loop
     }, 1000);
   }
 
   function finishExercise() {
     isPostureCorrect = false;
-    hasCompleted = true;
+    hasCompleted     = true;
     trackingProgress = 100;
     onProgress(100);
     onComplete();
@@ -474,8 +647,7 @@
     stopTracker();
   }
 
-  // ── Motion guard: reject tiny noise as "movement" ───────────────────────
-  // We store a rolling window of recent landmark positions to measure real motion
+  // ── Motion history ───────────────────────────────────────────────────────
   let landmarkHistory: any[] = [];
   const HISTORY_LEN = 6;
 
@@ -483,7 +655,6 @@
     if (landmarkHistory.length < 2) return 0;
     const prev = landmarkHistory[landmarkHistory.length - 1];
     let motion = 0;
-    // Only use upper body joints relevant to most exercises
     for (const i of [0, 7, 8, 11, 12, 13, 14, 15, 16, 23, 24]) {
       if (lm[i] && prev[i]) {
         motion += Math.abs(lm[i].x - prev[i].x) + Math.abs(lm[i].y - prev[i].y);
@@ -492,11 +663,10 @@
     return motion;
   }
 
-  // ── Hold exercise requires *some* real motion at regular intervals ────────
-  let holdMotionAccumulator = 0; // accumulated motion during hold period
-  const HOLD_MOTION_CHECK_FRAMES = 30; // check every ~1s at 30fps
+  let holdMotionAccumulator = 0;
+  const HOLD_MOTION_CHECK_FRAMES = 30;
   let holdFrameCount = 0;
-  const HOLD_MOTION_REQUIRED = 0.25; // must accumulate this much motion per 30 frames for hold exercises
+  const HOLD_MOTION_REQUIRED = 0.15;
 
   let lastVideoTime = -1;
 
@@ -504,7 +674,7 @@
     if (!webcamRunning || !videoElement || !canvasElement || !poseLandmarker || hasCompleted) return;
 
     if (canvasElement.width !== videoElement.videoWidth) {
-      canvasElement.width = videoElement.videoWidth;
+      canvasElement.width  = videoElement.videoWidth;
       canvasElement.height = videoElement.videoHeight;
     }
 
@@ -518,34 +688,91 @@
         canvasCtx.drawImage(videoElement, 0, 0, canvasElement.width, canvasElement.height);
 
         if (results.landmarks && results.landmarks.length > 0) {
-          const lm = results.landmarks[0];
+          const lm   = results.landmarks[0];
           const nose = lm[0];
-          const inFrame = nose.visibility !== undefined ? nose.visibility > 0.55 : true;
+          const inFrame = nose.visibility !== undefined ? nose.visibility > 0.50 : true;
 
           if (!inFrame) {
-            feedbackMessage = "Please step into the camera view.";
+            feedbackMessage  = "Please step into the camera view.";
             isPostureCorrect = false;
           } else {
-            // Update landmark history
             landmarkHistory.push(lm);
             if (landmarkHistory.length > HISTORY_LEN) landmarkHistory.shift();
 
-            const motionScore = computeMotionScore(lm);
+            // ── Per-exercise baseline calibration ──────────────────────
+            {
+              let needsCalib = false;
+              let calibMsg   = '';
+
+              if (exerciseKind === 'spine_extension' && !spineCalibDone) {
+                spineCalibAccum += (lm[23].y + lm[24].y) / 2 - (lm[11].y + lm[12].y) / 2;
+                spineCalibFrames++;
+                if (spineCalibFrames >= SPINE_CALIB_FRAMES) {
+                  spineBaseline  = spineCalibAccum / SPINE_CALIB_FRAMES;
+                  spineCalibDone = true;
+                }
+                needsCalib = !spineCalibDone;
+                calibMsg   = `Calibrating posture — sit naturally… (${spineCalibFrames}/${SPINE_CALIB_FRAMES})`;
+              }
+
+              if (exerciseKind === 'chin_tuck' && !chinCalibDone) {
+                const earMidY = (lm[7].y + lm[8].y) / 2;
+                chinCalibAccum += lm[0].y - earMidY;
+                chinCalibFrames++;
+                if (chinCalibFrames >= CHIN_CALIB_FRAMES) {
+                  chinBaseline  = chinCalibAccum / CHIN_CALIB_FRAMES;
+                  chinCalibDone = true;
+                }
+                needsCalib = !chinCalibDone;
+                calibMsg   = `Calibrating — sit naturally… (${chinCalibFrames}/${CHIN_CALIB_FRAMES})`;
+              }
+
+              if (exerciseKind === 'shoulder_roll' && !rollCalibDone) {
+                rollCalibAccum += (lm[11].y + lm[12].y) / 2;
+                rollCalibFrames++;
+                if (rollCalibFrames >= ROLL_CALIB_FRAMES) {
+                  rollBaseline  = rollCalibAccum / ROLL_CALIB_FRAMES;
+                  rollCalibDone = true;
+                }
+                needsCalib = !rollCalibDone;
+                calibMsg   = `Calibrating — relax your shoulders… (${rollCalibFrames}/${ROLL_CALIB_FRAMES})`;
+              }
+
+              if (exerciseKind === 'shoulder_shrug' && !shrugCalibDone) {
+                const leftGap  = Math.abs(lm[7].y  - lm[11].y);
+                const rightGap = Math.abs(lm[8].y  - lm[12].y);
+                shrugCalibAccum += (leftGap + rightGap) / 2;
+                shrugCalibFrames++;
+                if (shrugCalibFrames >= SHRUG_CALIB_FRAMES) {
+                  shrugBaseline  = shrugCalibAccum / SHRUG_CALIB_FRAMES;
+                  shrugCalibDone = true;
+                }
+                needsCalib = !shrugCalibDone;
+                calibMsg   = `Calibrating — relax your shoulders… (${shrugCalibFrames}/${SHRUG_CALIB_FRAMES})`;
+              }
+
+              if (needsCalib) {
+                feedbackMessage  = calibMsg;
+                isPostureCorrect = false;
+                canvasCtx.restore();
+                if (!hasCompleted) animationFrameId = requestAnimationFrame(predictWebcam);
+                return;
+              }
+            }
+
+            computeMotionScore(lm); // for potential future use
 
             if (useRepMode) {
-              // ── REP-COUNTING MODE ──────────────────────────────────────
+              // ── REP-COUNTING MODE ─────────────────────────────────────
               const detection = detectMovementPhase(lm, repPhase, exerciseKind);
 
               if (detection.phase !== repPhase) {
-                // Phase changed — check if person held it long enough
                 phaseHoldFrames++;
                 if (phaseHoldFrames >= PHASE_HOLD_REQUIRED) {
-                  // Confirmed phase transition
                   const prevPhase = repPhase;
-                  repPhase = detection.phase;
+                  repPhase        = detection.phase;
                   phaseHoldFrames = 0;
 
-                  // A full rep = peak → neutral transition
                   if (prevPhase === 'peak' && repPhase === 'neutral') {
                     completedReps++;
                     trackingProgress = (completedReps / targetReps) * 100;
@@ -553,7 +780,7 @@
                     speakInstruction(`Rep ${completedReps}.`);
 
                     if (completedReps >= targetReps) {
-                      feedbackMessage = "All reps done! 🎉";
+                      feedbackMessage  = "All reps done! 🎉";
                       isPostureCorrect = true;
                       finishExercise();
                       return;
@@ -565,74 +792,81 @@
               }
 
               isPostureCorrect = detection.correct;
-              feedbackMessage = detection.msg;
+              feedbackMessage  = detection.msg;
 
             } else if (exerciseKind === 'hold') {
               // ── HOLD MODE with motion requirement ─────────────────────
-              holdMotionAccumulator += motionScore;
+              holdMotionAccumulator += computeMotionScore(lm);
               holdFrameCount++;
 
               if (holdFrameCount >= HOLD_MOTION_CHECK_FRAMES) {
-                // Did person move enough in the last second?
-                const hasMotion = holdMotionAccumulator >= HOLD_MOTION_REQUIRED;
+                const hasMotion  = holdMotionAccumulator >= HOLD_MOTION_REQUIRED;
                 isPostureCorrect = hasMotion;
-                if (!hasMotion) {
-                  feedbackMessage = "Perform the exercise — stay active.";
-                } else {
-                  feedbackMessage = "Good — keep going.";
-                }
+                feedbackMessage  = hasMotion ? "Good — keep going." : "Perform the exercise — stay active.";
                 holdMotionAccumulator = 0;
-                holdFrameCount = 0;
+                holdFrameCount        = 0;
               }
+
             } else {
-              // ── TIME MODE with movement check (for hold-duration exercises) ────
+              // ── TIME MODE with phase tracking ─────────────────────────
+              // For time-based exercises (no reps count), BOTH neutral and
+              // peak count as "correct" so the timer never stalls between reps.
+              // The feedback message still tells the user what to do next.
               const detection = detectMovementPhase(lm, repPhase, exerciseKind);
+
               if (detection.phase !== repPhase) {
                 phaseHoldFrames++;
                 if (phaseHoldFrames >= PHASE_HOLD_REQUIRED) {
-                  repPhase = detection.phase;
+                  repPhase        = detection.phase;
                   phaseHoldFrames = 0;
                 }
               } else {
                 phaseHoldFrames = 0;
               }
+
+              // In time-mode all active-exercise phases are correct
+              // UNLESS we are still in initial calibration (handled above).
               isPostureCorrect = detection.correct;
-              feedbackMessage = detection.msg;
+              feedbackMessage  = detection.msg;
+
+              // Speak the feedback only when it meaningfully changes
+              if (detection.msg !== lastSpokenMsg) {
+                speakInstruction(detection.msg);
+              }
             }
 
-            // ── Draw person indicator ────────────────────────────────────
+            // ── Draw HUD overlay ─────────────────────────────────────────
             const cx = nose.x * canvasElement.width;
             const cy = nose.y * canvasElement.height;
             const ringColor = isPostureCorrect ? "#22c55e" : "#eab308";
 
             canvasCtx.beginPath();
-            canvasCtx.arc(cx, cy, 60, 0, 2 * Math.PI);
-            canvasCtx.lineWidth = 6;
+            canvasCtx.arc(cx, cy, 55, 0, 2 * Math.PI);
+            canvasCtx.lineWidth   = 5;
             canvasCtx.strokeStyle = ringColor;
             canvasCtx.stroke();
 
-            canvasCtx.fillStyle = "rgba(0,0,0,0.6)";
-            canvasCtx.roundRect(cx - 35, cy - 110, 70, 35, 8);
+            canvasCtx.fillStyle = "rgba(0,0,0,0.55)";
+            canvasCtx.roundRect(cx - 32, cy - 105, 64, 32, 8);
             canvasCtx.fill();
 
             canvasCtx.fillStyle = ringColor;
-            canvasCtx.font = "bold 22px sans-serif";
-            canvasCtx.fillText("👤 1", cx - 22, cy - 85);
+            canvasCtx.font      = "bold 20px sans-serif";
+            canvasCtx.fillText("👤 1", cx - 20, cy - 82);
 
-            // ── Draw rep counter HUD (rep mode) ──────────────────────────
             if (useRepMode) {
               const repText = `${completedReps}/${targetReps} reps`;
-              canvasCtx.fillStyle = "rgba(0,0,0,0.7)";
-              canvasCtx.roundRect(12, 12, 160, 44, 8);
+              canvasCtx.fillStyle = "rgba(0,0,0,0.70)";
+              canvasCtx.roundRect(12, 12, 170, 44, 8);
               canvasCtx.fill();
               canvasCtx.fillStyle = "#fff";
-              canvasCtx.font = "bold 20px sans-serif";
+              canvasCtx.font      = "bold 20px sans-serif";
               canvasCtx.fillText(repText, 22, 42);
             }
           }
         } else {
           isPostureCorrect = false;
-          feedbackMessage = "No person detected in frame.";
+          feedbackMessage  = "No person detected — please step into frame.";
         }
         canvasCtx.restore();
       }
@@ -664,7 +898,7 @@
         <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
         <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
       </svg>
-      <span class="text-sm font-medium tracking-wide">Starting High-Res Tracker...</span>
+      <span class="text-sm font-medium tracking-wide">Starting Tracker…</span>
     </div>
   {/if}
 

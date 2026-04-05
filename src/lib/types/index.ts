@@ -71,6 +71,7 @@ export interface ChatMessage {
 export interface ChatSession {
   id?: string;
   uid: string;
+  title: string;          // first user message, truncated
   messages: ChatMessage[];
   createdAt: Date;
   updatedAt: Date;
