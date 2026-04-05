@@ -2,7 +2,7 @@
   import { onMount } from 'svelte';
   import { authStore } from '$lib/stores/auth';
   import { generatePhysiotherapyPlan } from '$lib/ai/gemini';
-  import { saveExercisePlan, getExercisePlan, markExerciseComplete, getExerciseCompletions } from '$lib/firebase/firestore';
+  import { saveExercisePlan, getExercisePlan, markExerciseComplete, unmarkExerciseComplete, getExerciseCompletions } from '$lib/firebase/firestore';
   import ExerciseCard from '$lib/components/ExerciseCard.svelte';
   import LoadingSpinner from '$lib/components/LoadingSpinner.svelte';
   import Alert from '$lib/components/Alert.svelte';
@@ -144,10 +144,18 @@
     }
   }
 
-  async function handleComplete(exerciseId: string, exerciseName: string) {
-    if (!user || completedIds.has(exerciseId)) return;
-    completedIds = new Set([...completedIds, exerciseId]);
-    await markExerciseComplete(user.uid, today, { exerciseId, exerciseName, completedAt: new Date() });
+  async function handleToggle(exerciseId: string, exerciseName: string) {
+    if (!user) return;
+    
+    if (completedIds.has(exerciseId)) {
+      completedIds.delete(exerciseId);
+      completedIds = new Set(completedIds);
+      await unmarkExerciseComplete(user.uid, today, exerciseId);
+    } else {
+      completedIds.add(exerciseId);
+      completedIds = new Set(completedIds);
+      await markExerciseComplete(user.uid, today, { exerciseId, exerciseName, completedAt: new Date() });
+    }
   }
 </script>
 
@@ -202,10 +210,10 @@
         <div class="h-px bg-border flex-1"></div>
       </div>
 
-      <div class="space-y-4 {uploadingPdf ? 'opacity-50 pointer-events-none' : ''}">
+      <form onsubmit={(e) => { e.preventDefault(); generatePlan(); }} class="space-y-4 {uploadingPdf ? 'opacity-50 pointer-events-none' : ''}">
         <div>
           <label class="label" for="surgeryType">Surgery Type *</label>
-          <select id="surgeryType" class="input-field" bind:value={surgeryType}>
+          <select id="surgeryType" class="input-field" bind:value={surgeryType} required>
             <option value="">Select surgery type…</option>
             <option value="Lumbar Discectomy">Lumbar Discectomy</option>
             <option value="Spinal Fusion">Spinal Fusion</option>
@@ -219,7 +227,7 @@
 
         <div>
           <label class="label" for="stage">Recovery Stage *</label>
-          <select id="stage" class="input-field" bind:value={recoveryStage}>
+          <select id="stage" class="input-field" bind:value={recoveryStage} required>
             <option value="">Select recovery stage…</option>
             <option value="pre-op">Pre-Surgery Preparation</option>
             <option value="early">Early Recovery (0–6 weeks post-op)</option>
@@ -237,15 +245,15 @@
 
         <div>
           <label class="label" for="symptoms">Current Symptoms *</label>
-          <textarea id="symptoms" class="input-field" rows="2" placeholder="e.g., lower back stiffness, numbness in left leg…" bind:value={symptoms}></textarea>
+          <textarea id="symptoms" class="input-field" rows="2" placeholder="e.g., lower back stiffness, numbness in left leg…" bind:value={symptoms} required></textarea>
         </div>
 
         <div>
           <label class="label" for="limits">Physical Limitations *</label>
-          <textarea id="limits" class="input-field" rows="2" placeholder="e.g., cannot bend forward, limited walking distance…" bind:value={limitations}></textarea>
+          <textarea id="limits" class="input-field" rows="2" placeholder="e.g., cannot bend forward, limited walking distance…" bind:value={limitations} required></textarea>
         </div>
 
-        <button onclick={generatePlan} disabled={generating} class="btn-primary w-full py-3 justify-center text-base">
+        <button type="submit" disabled={generating} class="btn-primary w-full py-3 justify-center text-base">
           {#if generating}
             <LoadingSpinner size="sm" label="" />
             Generating your plan…
@@ -253,7 +261,7 @@
             ✦ Generate My Physiotherapy Plan
           {/if}
         </button>
-      </div>
+      </form>
     </div>
 
   {:else if plan}
@@ -277,7 +285,7 @@
               <ExerciseCard
                 {exercise}
                 completed={completedIds.has(exercise.id)}
-                onComplete={(id) => handleComplete(id, exercise.name)}
+                onComplete={(id) => handleToggle(id, exercise.name)}
               />
             {/each}
           </div>

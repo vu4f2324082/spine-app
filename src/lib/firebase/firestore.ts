@@ -105,6 +105,21 @@ export async function markExerciseComplete(
   await setDoc(ref, { completions, date }, { merge: true });
 }
 
+export async function unmarkExerciseComplete(
+  uid: string,
+  date: string,
+  exerciseId: string
+): Promise<void> {
+  const ref = doc(db, 'exercise_completions', uid, 'days', date);
+  const existing = await getDoc(ref);
+  if (!existing.exists()) return;
+  
+  let completions = existing.data().completions || [];
+  completions = completions.filter((c: any) => c.exerciseId !== exerciseId);
+  
+  await setDoc(ref, { completions, date }, { merge: true });
+}
+
 export async function getExerciseCompletions(uid: string, date: string): Promise<ExerciseCompletion[]> {
   const snap = await getDoc(doc(db, 'exercise_completions', uid, 'days', date));
   return snap.exists() ? snap.data().completions || [] : [];

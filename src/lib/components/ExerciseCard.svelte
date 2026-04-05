@@ -45,9 +45,8 @@
   <!-- Checkbox -->
   <button
     onclick={() => onComplete?.(exercise.id)}
-    class="flex-shrink-0 w-6 h-6 rounded-full border-2 flex items-center justify-center transition-all duration-150 mt-0.5 {completed ? 'bg-accent-green border-accent-green text-white' : 'border-border hover:border-primary'}"
-    aria-label="{completed ? 'Completed' : 'Mark complete'}"
-    disabled={completed}
+    class="flex-shrink-0 w-6 h-6 rounded-full border-2 flex items-center justify-center transition-all duration-150 mt-0.5 {completed ? 'bg-accent-green border-accent-green text-white cursor-pointer' : 'border-border hover:border-primary cursor-pointer'}"
+    aria-label="{completed ? 'Mark incomplete' : 'Mark complete'}"
   >
     {#if completed}
       <svg width="12" height="12" viewBox="0 0 12 12" fill="currentColor">
