@@ -6,12 +6,13 @@
     exerciseName: string;
     description: string;
     reps?: string;
+    duration?: string;
     onProgress: (progress: number) => void;
     onComplete: () => void;
     onClose: () => void;
   }
 
-  let { exerciseName, description, reps, onProgress, onComplete, onClose }: Props = $props();
+  let { exerciseName, description, reps, duration, onProgress, onComplete, onClose }: Props = $props();
 
   let videoElement: HTMLVideoElement | null = $state(null);
   let canvasElement: HTMLCanvasElement | null = $state(null);
@@ -37,14 +38,26 @@
   const correctionPhrases = ["Adjust your posture.", "Please stretch more.", "Move further.", "I am waiting."];
 
   onMount(async () => {
-    // Parse duration from reps or description
-    let foundTime = 30;
-    const descMatch = description.match(/(\d+)\s*(sec|min)/i);
-    if (descMatch) foundTime = descMatch[2].toLowerCase().startsWith('m') ? parseInt(descMatch[1]) * 60 : parseInt(descMatch[1]);
-    else if (reps) {
-      const repMatch = reps.match(/(\d+)/);
-      if (repMatch) foundTime = parseInt(repMatch[1]) * 4; // 4 secs per rep approx
+    let foundTime = 30; // default time fallback
+    
+    if (duration) {
+      const durMatch = duration.match(/(\d+)\s*(sec|min|m|s)/i);
+      if (durMatch) {
+         foundTime = durMatch[2].toLowerCase().startsWith('m') ? parseInt(durMatch[1]) * 60 : parseInt(durMatch[1]);
+      } else {
+         const durVal = parseInt(duration);
+         if (!isNaN(durVal)) foundTime = durVal;
+      }
+    } else {
+      const descMatch = description.match(/(\d+)\s*(sec|min)/i);
+      if (descMatch) {
+         foundTime = descMatch[2].toLowerCase().startsWith('m') ? parseInt(descMatch[1]) * 60 : parseInt(descMatch[1]);
+      } else if (reps) {
+        const repMatch = reps.match(/(\d+)/);
+        if (repMatch) foundTime = parseInt(repMatch[1]) * 4; // 4 secs per rep approx
+      }
     }
+    
     totalTime = foundTime;
     timeLeft = foundTime;
 
