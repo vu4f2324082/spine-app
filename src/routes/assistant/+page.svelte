@@ -2,11 +2,11 @@
   import { onMount } from 'svelte';
   import { authStore } from '$lib/stores/auth';
   import { createChatSession, sendMessage } from '$lib/ai/gemini';
-  import { getExercisePlan } from '$lib/firebase/firestore';
+  import { getExercisePlan, getChatSessions, saveChatSession } from '$lib/firebase/firestore';
   import aiLogo from '$lib/assets/spine-app-ai-logo.jpg';
   import ChatBubble from '$lib/components/ChatBubble.svelte';
   import Alert from '$lib/components/Alert.svelte';
-  import type { ChatMessage, ExercisePlan } from '$lib/types';
+  import type { ChatMessage, ExercisePlan, ChatSession } from '$lib/types';
 
   let messages = $state<ChatMessage[]>([]);
   let inputText = $state('');
@@ -15,6 +15,9 @@
   let messagesContainer: HTMLDivElement | undefined;
   
   let plan = $state<ExercisePlan | null>(null);
+  let currentSessionId = $state<string | undefined>(undefined);
+  let pastSessions = $state<ChatSession[]>([]);
+  let isHistoryOpen = $state(false);
 
   const user = $derived($authStore.user);
   const profile = $derived($authStore.patientProfile);
@@ -31,11 +34,14 @@
   onMount(async () => {
     if (user) {
       plan = await getExercisePlan(user.uid);
+      pastSessions = await getChatSessions(user.uid);
     }
     startNewSession();
   });
 
   function startNewSession() {
+    currentSessionId = undefined;
+    isHistoryOpen = false;
     suggestions = [...defaultSuggestions];
     messages = [{
       role: 'model',
@@ -86,6 +92,32 @@
     messages = [...messages, aiMessage];
     isLoading = false;
 
+    if (user) {
+      const sessionData = {
+        id: currentSessionId,
+        uid: user.uid,
+        messages: [...messages],
+        updatedAt: new Date()
+      } as ChatSession;
+      
+      saveChatSession(sessionData).then(savedId => {
+        if (!currentSessionId) {
+          currentSessionId = savedId;
+          getChatSessions(user.uid).then(sessions => {
+            pastSessions = sessions;
+          });
+        }
+      });
+    }
+
+    setTimeout(() => messagesContainer?.scrollTo({ top: messagesContainer.scrollHeight, behavior: 'smooth' }), 50);
+  }
+
+  function loadSession(session: ChatSession) {
+    messages = [...session.messages];
+    currentSessionId = session.id;
+    isHistoryOpen = false;
+    sessionReady = true;
     setTimeout(() => messagesContainer?.scrollTo({ top: messagesContainer.scrollHeight, behavior: 'smooth' }), 50);
   }
 
@@ -111,7 +143,8 @@
     </div>
     <div class="ml-auto flex gap-2 items-center">
       <span class="badge badge-success text-[10px] sm:text-xs">🟢 Online</span>
-      <button onclick={startNewSession} class="btn-secondary text-xs px-3 py-1.5 h-auto">Restart</button>
+      <button onclick={() => isHistoryOpen = true} class="btn-secondary text-xs px-3 py-1.5 h-auto whitespace-nowrap">History</button>
+      <button onclick={startNewSession} class="btn-primary text-xs px-3 py-1.5 h-auto whitespace-nowrap">New Chat</button>
     </div>
   </div>
 
@@ -120,6 +153,49 @@
     type="info"
     message="SpineGuide provides educational guidance only. For medical emergencies, contact your doctor or call emergency services immediately."
   />
+
+  <!-- History Sidebar Overlay -->
+  {#if isHistoryOpen}
+    <!-- svelte-ignore a11y_click_events_have_key_events -->
+    <!-- svelte-ignore a11y_no_static_element_interactions -->
+    <div class="fixed inset-0 bg-black/50 z-[100] flex justify-end" onclick={() => isHistoryOpen = false}>
+      <!-- svelte-ignore a11y_click_events_have_key_events -->
+      <!-- svelte-ignore a11y_no_static_element_interactions -->
+      <div class="bg-white w-80 h-full shadow-2xl flex flex-col transform transition-transform duration-300 translate-x-0" onclick={(e) => e.stopPropagation()}>
+        <div class="p-4 border-b border-border flex justify-between items-center bg-surface/30">
+          <h2 class="font-semibold text-lg text-black">Chat History</h2>
+          <button onclick={() => isHistoryOpen = false} class="p-2 hover:bg-surface rounded-full transition-colors" aria-label="Close Chat History">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+          </button>
+        </div>
+        <div class="flex-1 overflow-y-auto p-3">
+          {#if pastSessions.length === 0}
+            <div class="text-center mt-10">
+              <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" class="mx-auto text-muted mb-3"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path></svg>
+              <p class="text-sm text-muted">No past conversations found.</p>
+            </div>
+          {:else}
+            <div class="space-y-2">
+              {#each pastSessions as session}
+                <button 
+                  class="w-full text-left p-3 rounded-xl transition-all shadow-sm {currentSessionId === session.id ? 'bg-primary/5 border border-primary/30' : 'bg-white border border-border hover:border-primary/30 hover:shadow-md'}"
+                  onclick={() => loadSession(session)}
+                >
+                  <p class="text-sm font-medium line-clamp-1 block w-full text-black">
+                    {session.messages.find(m => m.role === 'user')?.content || 'Chat Session'}
+                  </p>
+                  <p class="text-xs text-muted mt-1.5 flex items-center gap-1">
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg>
+                    {new Date(session.updatedAt && typeof (session.updatedAt as any).toMillis === 'function' ? (session.updatedAt as any).toMillis() : session.updatedAt || Date.now()).toLocaleDateString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute:'2-digit' })}
+                  </p>
+                </button>
+              {/each}
+            </div>
+          {/if}
+        </div>
+      </div>
+    </div>
+  {/if}
 
   <!-- Messages -->
   <div bind:this={messagesContainer} class="flex-1 overflow-y-auto py-4 space-y-1">

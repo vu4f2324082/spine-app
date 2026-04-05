@@ -73,12 +73,14 @@ export async function generatePhysiotherapyPlan(params: {
 - Current Symptoms: ${params.symptoms || 'None reported'}
 - Physical Limitations: ${params.limitations || 'None reported'}
 
-CRITICAL INSTRUCTION: You MUST strictly tailor every single exercise to this specific surgery and these specific symptoms. DO NOT just output a generic static list of "Ankle Pumps", "Glute Bridges" or "Heel Slides" every single time! Invent descriptive, unique variations of safe exercises directly targeted at the physical limitations and pain score. The exercises MUST vary based on the inputs provided!
+CRITICAL INSTRUCTION: You MUST strictly tailor every single exercise to this specific surgery and these specific symptoms. DO NOT just output a generic static list of "Ankle Pumps", "Glute Bridges" or "Heel Slides" every single time! Invent descriptive, unique variations of safe exercises directly targeted at the physical limitations and pain score. The exercises MUST vary based on the inputs provided! 
+
+MOST IMPORTANT: ALL exercises MUST be STRICTLY PHYSIOTHERAPY based (i.e. physical stretches, joint mobility, or muscular strengthening). DO NOT include "Deep Breathing", "Meditation", "Relaxation", or "Mindfulness" as exercises, even for the evening category. If you need a gentle evening task, use a physical mobility stretch.
 
 Please provide a structured plan with:
 1. MORNING exercises (3-4 highly targeted gentle exercises)
 2. AFTERNOON exercises (2-3 targeted exercises)
-3. EVENING exercises (2-3 specific relaxation exercises)
+3. EVENING exercises (2-3 gentle physical stretching/mobility exercises)
 4. PRECAUTIONS (3-4 important customized safety tips)
 5. RED FLAGS (symptoms that require immediate doctor contact)
 
