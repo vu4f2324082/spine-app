@@ -44,7 +44,8 @@
     error = '';
     try {
       if (mode === 'signup') {
-        await signUp(email, password, displayName, role);
+        const user = await signUp(email, password, displayName, role);
+        await authStore.refresh(user.uid);
         goto(role === 'doctor' ? '/doctor' : '/dashboard');
       } else {
         const user = await signIn(email, password);

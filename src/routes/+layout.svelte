@@ -34,7 +34,7 @@
         return;
       }
       // Logged in on auth page → send to correct dashboard
-      if ($page.url.pathname === '/auth' && $authStore.user) {
+      if ($page.url.pathname === '/auth' && $authStore.user && $authStore.userProfile) {
         goto(role === 'doctor' ? '/doctor' : '/dashboard');
         return;
       }
