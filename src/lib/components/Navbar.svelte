@@ -1,26 +1,8 @@
 <script lang="ts">
-  import { page } from '$app/stores';
   import { goto } from '$app/navigation';
   import { authStore, isDoctor } from '$lib/stores/auth';
   import { logout } from '$lib/firebase/auth';
   import logo from '$lib/assets/spine-app-logo.png';
-
-  const patientNavItems = [
-    { href: '/dashboard', label: 'Dashboard' },
-    { href: '/assistant', label: 'AI Assistant' },
-    { href: '/physiotherapy', label: 'Physiotherapy' },
-    { href: '/monitoring', label: 'Monitoring' },
-    { href: '/education', label: 'Education' },
-    { href: '/profile', label: 'Profile' }
-  ];
-
-  const doctorNavItems = [
-    { href: '/dashboard', label: 'Dashboard' },
-    { href: '/doctor', label: 'My Patients' },
-    { href: '/profile', label: 'Profile' }
-  ];
-
-  const navItems = $derived($isDoctor ? doctorNavItems : patientNavItems);
 
   async function handleLogout() {
     await logout();
@@ -36,17 +18,6 @@
       <span class="font-semibold text-black text-lg tracking-tight">SpineSync</span>
     </a>
 
-    <!-- Nav Links (desktop) -->
-    <nav class="hidden md:flex items-center gap-1">
-      {#each navItems as item}
-        <a
-          href={item.href}
-          class="px-3 py-1.5 rounded-lg text-sm font-medium transition-all duration-150 {$page.url.pathname.startsWith(item.href) ? 'bg-primary/10 text-primary' : 'text-muted hover:text-black hover:bg-surface'}"
-        >
-          {item.label}
-        </a>
-      {/each}
-    </nav>
 
     <!-- User Actions -->
     <div class="flex items-center gap-3">
