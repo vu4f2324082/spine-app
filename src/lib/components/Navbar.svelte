@@ -1,6 +1,7 @@
 <script lang="ts">
   import { goto } from '$app/navigation';
   import { authStore, isDoctor } from '$lib/stores/auth';
+  import { isSidebarOpen } from '$lib/stores/ui';
   import { logout } from '$lib/firebase/auth';
   import logo from '$lib/assets/spine-app-logo.png';
 
@@ -12,11 +13,20 @@
 
 <header class="fixed top-0 left-0 right-0 z-50 bg-card border-b border-border shadow-sm">
   <div class="max-w-screen-xl mx-auto px-4 h-16 flex items-center justify-between">
-    <!-- Logo -->
-    <a href={$isDoctor ? '/doctor' : '/dashboard'} class="flex items-center gap-2.5 group">
-      <img src={logo} alt="SpineSync Logo" class="w-8 h-8 rounded-lg object-contain" />
-      <span class="font-semibold text-black text-lg tracking-tight">SpineSync</span>
-    </a>
+    <div class="flex items-center gap-3">
+      <!-- Hamburger Menu -->
+      <button class="lg:hidden p-1.5 -ml-1 text-muted hover:text-black rounded-lg transition-colors" onclick={() => $isSidebarOpen = !$isSidebarOpen}>
+        <svg width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+          <path d="M4 6h16M4 12h16M4 18h16" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+      </button>
+
+      <!-- Logo -->
+      <a href={$isDoctor ? '/doctor' : '/dashboard'} class="flex items-center gap-2.5 group">
+        <img src={logo} alt="SpineSync Logo" class="w-8 h-8 rounded-lg object-contain" />
+        <span class="font-semibold text-black text-lg tracking-tight">SpineSync</span>
+      </a>
+    </div>
 
 
     <!-- User Actions -->

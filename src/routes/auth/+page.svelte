@@ -3,6 +3,7 @@
   import { page } from '$app/stores';
   import { signIn, signUp, signInWithGoogle } from '$lib/firebase/auth';
   import { updateUserRole } from '$lib/firebase/firestore';
+  import { authStore } from '$lib/stores/auth';
   import Alert from '$lib/components/Alert.svelte';
   import LoadingSpinner from '$lib/components/LoadingSpinner.svelte';
   import logo from '$lib/assets/spine-app-logo.png';

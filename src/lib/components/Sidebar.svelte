@@ -1,6 +1,11 @@
 <script lang="ts">
   import { page } from '$app/stores';
   import { isDoctor } from '$lib/stores/auth';
+  import { isSidebarOpen } from '$lib/stores/ui';
+
+  function closeSidebar() {
+    $isSidebarOpen = false;
+  }
 
   // Patient-only nav items (hidden for doctors)
   const patientNavItems = [
@@ -28,11 +33,16 @@
   );
 </script>
 
-<aside class="fixed left-0 top-16 bottom-0 w-56 bg-card border-r border-border flex flex-col py-4 overflow-y-auto z-40 hidden lg:flex">
+{#if $isSidebarOpen}
+  <div class="fixed top-16 inset-x-0 bottom-0 bg-black/20 z-30 lg:hidden" onclick={closeSidebar}></div>
+{/if}
+
+<aside class="fixed left-0 top-16 bottom-0 w-56 bg-card border-r border-border flex flex-col py-4 overflow-y-auto z-40 transition-transform duration-300 {$isSidebarOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'}">
   <nav class="px-3 space-y-0.5 flex-1">
     {#each navItems as item}
       <a
         href={item.href}
+        onclick={closeSidebar}
         class="{$page.url.pathname.startsWith(item.href) ? 'nav-link-active' : 'nav-link'}"
       >
         <span class="flex-shrink-0">{@html item.icon}</span>
