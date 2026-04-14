@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount, onDestroy } from 'svelte';
-  import { FilesetResolver, PoseLandmarker } from '@mediapipe/tasks-vision';
+  import { FilesetResolver, PoseLandmarker, DrawingUtils } from '@mediapipe/tasks-vision';
 
   interface Props {
     exerciseName: string;
@@ -17,6 +17,7 @@
   let videoElement: HTMLVideoElement | null = $state(null);
   let canvasElement: HTMLCanvasElement | null = $state(null);
   let canvasCtx: CanvasRenderingContext2D | null = $state(null);
+  let drawingUtils: DrawingUtils | null = $state(null);
 
   let poseLandmarker: PoseLandmarker | null = null;
   let webcamRunning = $state(false);
@@ -386,8 +387,8 @@
         const elbowWidth    = Math.abs(leftElbow.x    - rightElbow.x);
         const wristWidth    = Math.abs(leftWrist.x    - rightWrist.x);
 
-        const isSqueezed = elbowWidth > shoulderWidth + 0.09 && wristWidth > shoulderWidth + 0.07;
-        const isRelaxed  = elbowWidth < shoulderWidth + 0.04 && wristWidth < shoulderWidth + 0.06;
+        const isSqueezed = elbowWidth > shoulderWidth + 0.04 && wristWidth > shoulderWidth + 0.02;
+        const isRelaxed  = elbowWidth < shoulderWidth + 0.02 && wristWidth < shoulderWidth + 0.04;
 
         if (currentPhase === 'neutral') {
           if (isSqueezed) return { phase: 'peak', correct: true, msg: 'Great squeeze — blades together!' };
@@ -537,6 +538,7 @@
 
     if (canvasElement) {
       canvasCtx = canvasElement.getContext('2d', { alpha: false });
+      if (canvasCtx) drawingUtils = new DrawingUtils(canvasCtx);
     }
     speakInstruction(`Starting ${exerciseName}. ${description}`);
     await initTracker();
@@ -839,6 +841,14 @@
             const cx = nose.x * canvasElement.width;
             const cy = nose.y * canvasElement.height;
             const ringColor = isPostureCorrect ? "#22c55e" : "#eab308";
+
+            // Draw full skeleton
+            if (drawingUtils && results.landmarks) {
+              for (const landmark of results.landmarks) {
+                drawingUtils.drawConnectors(landmark, PoseLandmarker.POSE_CONNECTIONS, { color: 'rgba(255, 255, 255, 0.4)', lineWidth: 3 });
+                drawingUtils.drawLandmarks(landmark, { color: isPostureCorrect ? '#22c55e' : '#eab308', lineWidth: 1, radius: 4 });
+              }
+            }
 
             canvasCtx.beginPath();
             canvasCtx.arc(cx, cy, 55, 0, 2 * Math.PI);
