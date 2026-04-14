@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte';
+  import { activeTrackerId } from '$lib/stores/ui';
   import type { Exercise } from '$lib/types';
   import PoseTracker from './PoseTracker.svelte';
 
@@ -13,11 +14,14 @@
 
   let videoId = $state<string | null>(null);
   let loadingVideo = $state(false);
-  let showTracker = $state(false);
+
+  let isTracking = $derived($activeTrackerId === exercise.id);
 
   function handleTrackerComplete() {
     if (onComplete) onComplete(exercise.id);
-    setTimeout(() => { showTracker = false; }, 3000);
+    setTimeout(() => { 
+      if ($activeTrackerId === exercise.id) $activeTrackerId = null; 
+    }, 3000);
   }
 
   // Extract video ID from videoUrl if it exists, otherwise search for it
@@ -80,7 +84,7 @@
 
     <!-- Tracker or Video Player or Placeholder -->
     <div class="flex flex-wrap items-center gap-4">
-      {#if showTracker}
+      {#if isTracking}
         <div class="w-full">
           <PoseTracker 
             exerciseName={exercise.name} 
@@ -89,7 +93,7 @@
             duration={exercise.duration}
             onProgress={(p) => {}} 
             onComplete={handleTrackerComplete} 
-            onClose={() => showTracker = false}
+            onClose={() => { if ($activeTrackerId === exercise.id) $activeTrackerId = null; }}
           />
         </div>
       {:else if videoId}
@@ -116,10 +120,10 @@
         </div>
       {/if}
 
-      {#if !completed && !showTracker}
+      {#if !completed && !isTracking}
         <button 
           class="group text-sm font-bold bg-accent-green/10 text-accent-green hover:bg-accent-green hover:text-white px-5 py-4 rounded-xl transition-all duration-200 flex flex-col items-center justify-center gap-2.5 border-2 border-accent-green/30 hover:shadow-md min-w-[150px] aspect-square max-h-[160px]"
-          onclick={() => showTracker = true}
+          onclick={() => $activeTrackerId = exercise.id}
         >
           <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="group-hover:text-white"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"></path><circle cx="12" cy="13" r="4"></circle></svg>
           <span class="text-center font-extrabold tracking-wide uppercase text-xs group-hover:text-white">Track via<br/>Webcam</span>
