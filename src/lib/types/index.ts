@@ -4,6 +4,8 @@ export interface UserProfile {
   role: 'patient' | 'doctor';
   createdAt: Date;
   photoURL?: string;
+  specialty?: string;      // Doctor only
+  licenseNumber?: string;  // Doctor only
 }
 
 export interface PatientProfile {
@@ -13,7 +15,7 @@ export interface PatientProfile {
   recoveryStage: 'pre-op' | 'early' | 'mid' | 'late' | 'complete';
   age: number;
   phoneNumber?: string;
-  doctorId?: string;
+  doctorId?: string;       // Links patient to a doctor
   height?: number;
   weight?: number;
   medications?: string;
@@ -94,4 +96,17 @@ export interface DashboardStats {
   recoveryDays: number;
   weeklyAdherence: number;
   lastLog?: SymptomLog;
+}
+
+/** Full aggregated data for a patient viewed by a doctor */
+export interface PatientFullData {
+  uid: string;
+  displayName: string;
+  email: string;
+  patientProfile: PatientProfile | null;
+  recentLogs: SymptomLog[];
+  exercisePlan: ExercisePlan | null;
+  todayCompletions: ExerciseCompletion[];
+  doctorNotes: DoctorNote[];
+  flagged: boolean;
 }

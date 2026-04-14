@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte';
+  import { goto } from '$app/navigation';
   import { authStore } from '$lib/stores/auth';
   import { getSymptomLogs, getExercisePlan, getExerciseCompletions, saveExercisePlan } from '$lib/firebase/firestore';
   import { generateRecoverySummary, generatePhysiotherapyPlan } from '$lib/ai/gemini';
@@ -50,6 +51,13 @@
 
   onMount(async () => {
     if (!user) return;
+
+    // Doctors should always be on their own dashboard
+    if ($authStore.userProfile?.role === 'doctor') {
+      goto('/doctor');
+      return;
+    }
+
     const uid = user.uid;
     const [l, p, c] = await Promise.all([
       getSymptomLogs(uid, 14),

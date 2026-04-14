@@ -1,18 +1,26 @@
 <script lang="ts">
   import { page } from '$app/stores';
   import { goto } from '$app/navigation';
-  import { authStore } from '$lib/stores/auth';
+  import { authStore, isDoctor } from '$lib/stores/auth';
   import { logout } from '$lib/firebase/auth';
   import logo from '$lib/assets/spine-app-logo.png';
 
-  const navItems = [
-    { href: '/dashboard', label: 'Dashboard', icon: '◎' },
-    { href: '/assistant', label: 'AI Assistant', icon: '✦' },
-    { href: '/physiotherapy', label: 'Physiotherapy', icon: '⟳' },
-    { href: '/monitoring', label: 'Monitoring', icon: '⋯' },
-    { href: '/education', label: 'Education', icon: '◈' },
-    { href: '/profile', label: 'Profile', icon: '◉' }
+  const patientNavItems = [
+    { href: '/dashboard', label: 'Dashboard' },
+    { href: '/assistant', label: 'AI Assistant' },
+    { href: '/physiotherapy', label: 'Physiotherapy' },
+    { href: '/monitoring', label: 'Monitoring' },
+    { href: '/education', label: 'Education' },
+    { href: '/profile', label: 'Profile' }
   ];
+
+  const doctorNavItems = [
+    { href: '/dashboard', label: 'Dashboard' },
+    { href: '/doctor', label: 'My Patients' },
+    { href: '/profile', label: 'Profile' }
+  ];
+
+  const navItems = $derived($isDoctor ? doctorNavItems : patientNavItems);
 
   async function handleLogout() {
     await logout();
@@ -23,7 +31,7 @@
 <header class="fixed top-0 left-0 right-0 z-50 bg-card border-b border-border shadow-sm">
   <div class="max-w-screen-xl mx-auto px-4 h-16 flex items-center justify-between">
     <!-- Logo -->
-    <a href="/dashboard" class="flex items-center gap-2.5 group">
+    <a href={$isDoctor ? '/doctor' : '/dashboard'} class="flex items-center gap-2.5 group">
       <img src={logo} alt="SpineSync Logo" class="w-8 h-8 rounded-lg object-contain" />
       <span class="font-semibold text-black text-lg tracking-tight">SpineSync</span>
     </a>
@@ -44,10 +52,22 @@
     <div class="flex items-center gap-3">
       {#if $authStore.user}
         <div class="hidden sm:flex items-center gap-2">
-          <div class="w-8 h-8 bg-primary/10 rounded-full flex items-center justify-center text-primary font-semibold text-sm">
-            {$authStore.user.displayName?.[0]?.toUpperCase() || 'P'}
+          <div class="relative">
+            <div class="w-8 h-8 {$isDoctor ? 'bg-emerald-100' : 'bg-primary/10'} rounded-full flex items-center justify-center {$isDoctor ? 'text-emerald-700' : 'text-primary'} font-semibold text-sm">
+              {$authStore.user.displayName?.[0]?.toUpperCase() || 'U'}
+            </div>
+            {#if $isDoctor}
+              <span class="absolute -top-1 -right-1 text-[10px] leading-none">⚕️</span>
+            {/if}
           </div>
-          <span class="text-sm text-muted hidden lg:block">{$authStore.user.displayName}</span>
+          <div class="hidden lg:block">
+            <p class="text-sm text-black font-medium leading-tight">{$authStore.user.displayName}</p>
+            {#if $isDoctor}
+              <p class="text-[10px] text-emerald-600 font-medium">Doctor</p>
+            {:else}
+              <p class="text-[10px] text-muted">Patient</p>
+            {/if}
+          </div>
         </div>
         <button onclick={handleLogout} class="btn-ghost text-sm px-3 py-1.5">Sign out</button>
       {:else}

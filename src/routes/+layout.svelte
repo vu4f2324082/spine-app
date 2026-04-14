@@ -9,11 +9,18 @@
 
   const publicRoutes = ['/', '/auth'];
 
+  // Routes only patients can access
+  const patientOnlyRoutes = ['/physiotherapy', '/monitoring', '/assistant', '/education'];
+  // Routes only doctors can access
+  const doctorOnlyRoutes = ['/doctor'];
+
   const isPublicRoute = $derived(
     publicRoutes.some(r => $page.url.pathname === r || $page.url.pathname.startsWith('/auth'))
   );
 
   const isAuthenticatedRoute = $derived(!isPublicRoute);
+  const currentPath = $derived($page.url.pathname);
+  const role = $derived($authStore.userProfile?.role);
 
   onMount(() => {
     authStore.init();
@@ -21,11 +28,25 @@
 
   $effect(() => {
     if ($authStore.initialized && !$authStore.loading) {
+      // Not logged in → send to auth
       if (isAuthenticatedRoute && !$authStore.user) {
         goto('/auth');
+        return;
       }
+      // Logged in on auth page → send to correct dashboard
       if ($page.url.pathname === '/auth' && $authStore.user) {
+        goto(role === 'doctor' ? '/doctor' : '/dashboard');
+        return;
+      }
+      // Doctor visiting a patient-only route
+      if (role === 'doctor' && patientOnlyRoutes.some(r => currentPath.startsWith(r))) {
+        goto('/doctor');
+        return;
+      }
+      // Patient visiting a doctor-only route
+      if (role === 'patient' && doctorOnlyRoutes.some(r => currentPath.startsWith(r))) {
         goto('/dashboard');
+        return;
       }
     }
   });

@@ -2,6 +2,7 @@
   import { goto } from '$app/navigation';
   import { page } from '$app/stores';
   import { signIn, signUp, signInWithGoogle } from '$lib/firebase/auth';
+  import { updateUserRole } from '$lib/firebase/firestore';
   import Alert from '$lib/components/Alert.svelte';
   import LoadingSpinner from '$lib/components/LoadingSpinner.svelte';
   import logo from '$lib/assets/spine-app-logo.png';
@@ -10,8 +11,15 @@
   let email = $state('');
   let password = $state('');
   let displayName = $state('');
+  let role = $state<'patient' | 'doctor'>('patient');
   let loading = $state(false);
   let error = $state('');
+
+  // Role-selector modal state (shown after Google sign-in for new users)
+  let showRoleModal = $state(false);
+  let pendingGoogleUid = $state('');
+  let modalRole = $state<'patient' | 'doctor'>('patient');
+  let savingRole = $state(false);
 
   // Check URL param for initial mode
   $effect(() => {
@@ -23,6 +31,7 @@
     email = '';
     password = '';
     displayName = '';
+    role = 'patient';
     error = '';
   }
 
@@ -35,11 +44,16 @@
     error = '';
     try {
       if (mode === 'signup') {
-        await signUp(email, password, displayName);
+        await signUp(email, password, displayName, role);
+        goto(role === 'doctor' ? '/doctor' : '/dashboard');
       } else {
-        await signIn(email, password);
+        const user = await signIn(email, password);
+        // Determine where to send the user based on their stored role.
+        // We import getUserProfile lazily to avoid circular imports.
+        const { getUserProfile } = await import('$lib/firebase/firestore');
+        const profile = await getUserProfile(user.uid);
+        goto(profile?.role === 'doctor' ? '/doctor' : '/dashboard');
       }
-      goto('/dashboard');
     } catch (e: unknown) {
       const msg = (e as { message?: string })?.message || '';
       if (msg.includes('email-already-in-use')) error = 'An account with this email already exists.';
@@ -55,8 +69,17 @@
     loading = true;
     error = '';
     try {
-      await signInWithGoogle();
-      goto('/dashboard');
+      const { user, isNewUser } = await signInWithGoogle();
+      if (isNewUser) {
+        // Stop and ask the user what role they want
+        pendingGoogleUid = user.uid;
+        showRoleModal = true;
+        loading = false;
+      } else {
+        const { getUserProfile } = await import('$lib/firebase/firestore');
+        const profile = await getUserProfile(user.uid);
+        goto(profile?.role === 'doctor' ? '/doctor' : '/dashboard');
+      }
     } catch (e: unknown) {
       const msg = (e as { message?: string })?.message || '';
       if (msg.includes('popup-closed')) error = 'Sign-in popup was closed.';
@@ -66,11 +89,69 @@
       loading = false;
     }
   }
+
+  async function confirmGoogleRole() {
+    if (!pendingGoogleUid) return;
+    savingRole = true;
+    try {
+      await updateUserRole(pendingGoogleUid, modalRole);
+      showRoleModal = false;
+      goto(modalRole === 'doctor' ? '/doctor' : '/dashboard');
+    } catch {
+      error = 'Failed to save your role. Please try again.';
+      showRoleModal = false;
+    } finally {
+      savingRole = false;
+    }
+  }
 </script>
 
 <svelte:head>
   <title>{mode === 'login' ? 'Sign In' : 'Create Account'} – SpineSync</title>
 </svelte:head>
+
+<!-- Role Selection Modal (Google new users) -->
+{#if showRoleModal}
+  <div class="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm">
+    <div class="bg-white rounded-2xl shadow-2xl p-8 max-w-md w-full mx-4 animate-fade-in">
+      <div class="text-center mb-6">
+        <div class="w-14 h-14 bg-primary/10 rounded-full flex items-center justify-center text-3xl mx-auto mb-3">🏥</div>
+        <h2 class="text-xl font-bold text-black">Welcome to SpineSync!</h2>
+        <p class="text-muted text-sm mt-1">How will you be using SpineSync?</p>
+      </div>
+
+      <div class="grid grid-cols-2 gap-3 mb-6">
+        <button
+          onclick={() => modalRole = 'patient'}
+          class="flex flex-col items-center gap-2 p-4 rounded-xl border-2 transition-all duration-200 {modalRole === 'patient' ? 'border-primary bg-primary/5' : 'border-border hover:border-primary/40'}"
+        >
+          <span class="text-3xl">🧑‍💼</span>
+          <span class="font-semibold text-sm text-black">I'm a Patient</span>
+          <span class="text-xs text-muted text-center">Track my recovery & exercises</span>
+        </button>
+        <button
+          onclick={() => modalRole = 'doctor'}
+          class="flex flex-col items-center gap-2 p-4 rounded-xl border-2 transition-all duration-200 {modalRole === 'doctor' ? 'border-emerald-500 bg-emerald-50' : 'border-border hover:border-emerald-300'}"
+        >
+          <span class="text-3xl">👨‍⚕️</span>
+          <span class="font-semibold text-sm text-black">I'm a Doctor</span>
+          <span class="text-xs text-muted text-center">Monitor my patients' progress</span>
+        </button>
+      </div>
+
+      <button
+        onclick={confirmGoogleRole}
+        disabled={savingRole}
+        class="btn-primary w-full py-3 justify-center text-base"
+      >
+        {#if savingRole}
+          <LoadingSpinner size="sm" label="" />
+        {/if}
+        Continue as {modalRole === 'doctor' ? 'Doctor' : 'Patient'}
+      </button>
+    </div>
+  </div>
+{/if}
 
 <div class="min-h-screen bg-bg flex">
   <!-- Left Panel -->
@@ -102,7 +183,7 @@
         {mode === 'login' ? 'Welcome back' : 'Create your account'}
       </h1>
       <p class="text-muted text-sm mb-8">
-        {mode === 'login' ? "Sign in to continue your recovery journey." : "Start your personalized spine recovery program."}
+        {mode === 'login' ? "Sign in to continue your journey." : "Join SpineSync as a patient or doctor."}
       </p>
 
       {#if error}
@@ -128,7 +209,37 @@
             <label class="label" for="name">Full Name</label>
             <input id="name" type="text" class="input-field" placeholder="Your full name" bind:value={displayName} required />
           </div>
+
+          <!-- Role Selector (signup only) -->
+          <div>
+            <p class="label mb-2 font-medium text-sm text-black">I am signing up as</p>
+            <div class="grid grid-cols-2 gap-2">
+              <button
+                type="button"
+                onclick={() => role = 'patient'}
+                class="flex items-center gap-2 p-3 rounded-xl border-2 transition-all duration-200 text-left {role === 'patient' ? 'border-primary bg-primary/5' : 'border-border hover:border-primary/40'}"
+              >
+                <span class="text-xl">🧑‍💼</span>
+                <div>
+                  <p class="font-semibold text-sm text-black leading-tight">Patient</p>
+                  <p class="text-xs text-muted">Track recovery</p>
+                </div>
+              </button>
+              <button
+                type="button"
+                onclick={() => role = 'doctor'}
+                class="flex items-center gap-2 p-3 rounded-xl border-2 transition-all duration-200 text-left {role === 'doctor' ? 'border-emerald-500 bg-emerald-50' : 'border-border hover:border-emerald-300'}"
+              >
+                <span class="text-xl">👨‍⚕️</span>
+                <div>
+                  <p class="font-semibold text-sm text-black leading-tight">Doctor</p>
+                  <p class="text-xs text-muted">Monitor patients</p>
+                </div>
+              </button>
+            </div>
+          </div>
         {/if}
+
         <div>
           <label class="label" for="email">Email Address</label>
           <input id="email" type="email" class="input-field" placeholder="you@example.com" bind:value={email} required />
@@ -142,7 +253,7 @@
           {#if loading}
             <LoadingSpinner size="sm" label="" />
           {/if}
-          {mode === 'login' ? 'Sign In' : 'Create Account'}
+          {mode === 'login' ? 'Sign In' : (role === 'doctor' ? 'Create Doctor Account' : 'Create Patient Account')}
         </button>
       </form>
 
