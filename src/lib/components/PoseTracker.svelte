@@ -81,11 +81,11 @@
     if (t.includes('shrug')) return 'shoulder_shrug';
     if (t.includes('arm circle')) return 'arm_circle';
     if (t.includes('arm') && (t.includes('raise') || t.includes('up') || t.includes('overhead') || t.includes('lift'))) return 'arm_raise';
+    if (t.includes('knee') || t.includes('leg raise') || t.includes('march')) return 'knee_raise';
     if (t.includes('chest') && (t.includes('open') || t.includes('stretch') || t.includes('expand'))) return 'chest_open';
     if (t.includes('side') && (t.includes('bend') || t.includes('stretch'))) return 'side_bend';
     if (t.includes('twist') || (t.includes('trunk') && t.includes('rotat')) || t.includes('torso rotat')) return 'trunk_twist';
     if (t.includes('forward bend') || t.includes('touch toe') || t.includes('toe touch')) return 'forward_bend';
-    if (t.includes('knee') || t.includes('leg raise') || t.includes('march')) return 'knee_raise';
     if (t.includes('calf') || t.includes('heel raise') || t.includes('toe raise')) return 'heel_raise';
     return 'hold';
   }
