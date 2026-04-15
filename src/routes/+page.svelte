@@ -25,7 +25,7 @@
 
 <!-- 3D Interactive Background -->
 <div class="fixed inset-0 z-0 opacity-40">
-  <Spine3D />
+  <Spine3D showControls={false} />
 </div>
 
 <!-- Main Content Overlay -->

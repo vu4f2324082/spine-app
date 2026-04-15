@@ -3,6 +3,9 @@
   import * as THREE from 'three';
   import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 
+  interface Props { showControls?: boolean; }
+  let { showControls = true }: Props = $props();
+
   let canvasContainer: HTMLDivElement;
   let renderer: THREE.WebGLRenderer;
   let scene: THREE.Scene;
@@ -388,6 +391,7 @@
     <div class="absolute inset-0 pointer-events-none opacity-20" style="background-image: radial-gradient(#64748b 1px, transparent 1px); background-size: 24px 24px;"></div>
     
     <!-- Fullscreen Toggle Button -->
+    {#if showControls}
     <button 
         onclick={toggleFullscreen}
         class="absolute top-6 right-6 z-30 flex items-center gap-2 px-4 py-2 rounded-xl bg-white/90 backdrop-blur border border-slate-200 shadow-lg text-slate-800 hover:bg-slate-50 transition-all focus:outline-none"
@@ -402,8 +406,10 @@
         </svg>
         <span class="text-sm font-semibold tracking-wide">Fullscreen</span>
     </button>
+    {/if}
     
     <!-- On-screen Zoom Controls -->
+    {#if showControls}
     <div class="absolute right-6 top-1/2 -translate-y-1/2 flex flex-col gap-2 z-30 bg-white/80 backdrop-blur-md border border-slate-200 p-1.5 rounded-xl shadow-lg">
         <button onclick={zoomIn} class="w-8 h-8 flex items-center justify-center bg-transparent rounded-lg hover:bg-slate-100 text-slate-700 transition" aria-label="Zoom In" title="Zoom In">
             <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
@@ -413,6 +419,7 @@
             <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="5" y1="12" x2="19" y2="12"></line></svg>
         </button>
     </div>
+    {/if}
 
     <div 
         bind:this={canvasContainer} 
