@@ -21,7 +21,10 @@ export async function POST({ request }: { request: Request }) {
 		let text = '';
 		
 		try {
-			const pdfParse = (await import('pdf-parse')).default;
+			// Must import the internal lib directly — the top-level pdf-parse entrypoint
+			// crashes on Vercel because it tries to read test fixture files that don't
+			// exist in the serverless filesystem.
+			const pdfParse = (await import('pdf-parse/lib/pdf-parse.js')).default;
 			const pdfData = await pdfParse(buffer);
 			text = pdfData.text;
 		} catch (err) {
