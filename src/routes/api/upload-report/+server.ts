@@ -1,10 +1,6 @@
 import { json } from '@sveltejs/kit';
 import { OPENAI_API_KEY } from '$env/static/private';
 import OpenAI from 'openai';
-import { createRequire } from 'module';
-const require = createRequire(import.meta.url);
-const pdfParseLib = require('pdf-parse');
-const PDFParse = pdfParseLib.PDFParse;
 
 export async function POST({ request }: { request: Request }) {
 	try {
@@ -19,16 +15,15 @@ export async function POST({ request }: { request: Request }) {
 			return json({ error: 'Uploaded file must be a PDF.' }, { status: 400 });
 		}
 
-		// 1. Extract text from PDF
+		// 1. Extract text from PDF using pdf-parse (correct usage: it's a function, not a class)
 		const arrayBuffer = await file.arrayBuffer();
 		const buffer = Buffer.from(arrayBuffer);
 		let text = '';
 		
 		try {
-			const parser = new PDFParse({ data: buffer });
-			const pdfData = await parser.getText();
+			const pdfParse = (await import('pdf-parse')).default;
+			const pdfData = await pdfParse(buffer);
 			text = pdfData.text;
-			await parser.destroy();
 		} catch (err) {
 			console.error('[Upload API] PDF parse error:', err);
 			return json({ error: 'Failed to parse the PDF document. It may be corrupted or protected.' }, { status: 400 });
