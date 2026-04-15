@@ -21,12 +21,11 @@ export async function POST({ request }: { request: Request }) {
 		let text = '';
 		
 		try {
-			// Must import the internal lib directly — the top-level pdf-parse entrypoint
-			// crashes on Vercel because it tries to read test fixture files that don't
-			// exist in the serverless filesystem.
-			const pdfParse = (await import('pdf-parse/lib/pdf-parse.js')).default;
-			const pdfData = await pdfParse(buffer);
-			text = pdfData.text;
+			// unpdf is built for serverless/edge environments — no fs deps unlike pdf-parse
+			const { extractText } = await import('unpdf');
+			const uint8 = new Uint8Array(arrayBuffer);
+			const { text: pages } = await extractText(uint8, { mergePages: true });
+			text = Array.isArray(pages) ? pages.join('\n') : (pages as string);
 		} catch (err) {
 			console.error('[Upload API] PDF parse error:', err);
 			return json({ error: 'Failed to parse the PDF document. It may be corrupted or protected.' }, { status: 400 });
