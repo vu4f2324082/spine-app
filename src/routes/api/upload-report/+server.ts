@@ -65,7 +65,7 @@ Ensure the output is ONLY valid JSON without any markdown formatting wrappers or
 		];
 
 		const response = await openai.chat.completions.create({
-			model: 'llama-3.3-70b-versatile',
+			model: 'openai/gpt-oss-20b',
 			messages: messages as any,
 			response_format: { type: 'json_object' }
 		});
