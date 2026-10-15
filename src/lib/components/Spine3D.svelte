@@ -3,8 +3,8 @@
   import * as THREE from 'three';
   import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 
-  interface Props { showControls?: boolean; }
-  let { showControls = true }: Props = $props();
+  interface Props { showControls?: boolean; affectedSpineRegion?: string[]; }
+  let { showControls = true, affectedSpineRegion = [] }: Props = $props();
 
   let canvasContainer: HTMLDivElement;
   let renderer: THREE.WebGLRenderer;
@@ -14,7 +14,8 @@
   let animationFrameId: number;
 
   const vertebraeGroup = new THREE.Group();
-  const interactableObjects: THREE.Mesh[] = [];
+  // $state so the $effect can react when onMount populates this after building the scene
+  let interactableObjects = $state<THREE.Mesh[]>([]);
 
   // Hover state UI
   let hoveredInfo: { title: string; description: string; surgeries: string; x: number; y: number } | null = $state(null);
@@ -24,9 +25,38 @@
   let hoveredMesh: THREE.Mesh | null = null;
   
   // Premium Colors
-  const boneColor = 0xeae6df; // off-white bone
-  const discColor = 0x8ab4f8; // soft blue, gel-like
-  const highlightColor = 0x3b82f6; // vibrant blue
+  const boneColor = 0xeae6df;    // off-white bone
+  const discColor = 0x8ab4f8;    // soft blue, gel-like
+  const highlightColor = 0x3b82f6; // vibrant blue (hover)
+  const affectedColor = 0xef4444;  // vivid red (surgery site)
+  const affectedEmissive = 0xb91c1c; // darker red emissive glow
+
+  /** Apply/remove the persistent red highlight for all affected bones. */
+  function applyAffectedColors() {
+    interactableObjects.forEach((mesh) => {
+      const isAffected = affectedSpineRegion.includes(mesh.userData.regionName);
+      mesh.userData.isAffected = isAffected;
+      if (mesh === hoveredMesh) return; // don't override active hover
+      const mat = mesh.material as THREE.MeshStandardMaterial;
+      if (isAffected) {
+        mat.color.setHex(affectedColor);
+        mat.emissive.setHex(affectedEmissive);
+        mat.emissiveIntensity = 0.35;
+      } else {
+        mat.color.setHex(mesh.userData.originalColor);
+        mat.emissive.setHex(0x000000);
+        mat.emissiveIntensity = 1;
+      }
+    });
+  }
+
+  // Re-runs whenever: (a) scene bones are added to interactableObjects, OR (b) affectedSpineRegion prop changes
+  $effect(() => {
+    if (!interactableObjects.length) return;
+    // Access affectedSpineRegion so Svelte tracks it as a dependency
+    void affectedSpineRegion.length;
+    applyAffectedColors();
+  });
 
   // Spine Anatomy Data
   const spineRegions = [
@@ -203,12 +233,14 @@
 
         // Add metadata for interaction
         const label = region.count === 1 ? region.prefix : `${region.prefix}${index}`;
+        const isAffected = affectedSpineRegion.includes(region.name);
         mesh.userData = { 
           label,
           regionName: region.name,
           desc: region.desc,
           surgeries: region.surgeries,
-          originalColor: boneColor
+          originalColor: boneColor,
+          isAffected
         };
         
         interactableObjects.push(mesh);
@@ -236,6 +268,11 @@
     });
 
     scene.add(vertebraeGroup);
+
+    // Signal $state that the array is now populated, triggering $effect to apply colors.
+    // This handles both cases: prop already arrived (apply immediately) or will arrive later (effect re-runs).
+    interactableObjects = [...interactableObjects];
+    applyAffectedColors();
 
     // Perfectly Center the Camera on the Spine's Bounding Box
     const box = new THREE.Box3().setFromObject(vertebraeGroup);
@@ -315,10 +352,16 @@
     const intersects = raycaster.intersectObjects(interactableObjects);
 
     if (hoveredMesh && (intersects.length === 0 || intersects[0].object !== hoveredMesh)) {
-        // Unhover
+        // Unhover — restore to affected (red) or default bone color
         const mat = hoveredMesh.material as THREE.MeshStandardMaterial;
-        mat.color.setHex(hoveredMesh.userData.originalColor);
-        mat.emissive.setHex(0x000000);
+        if (hoveredMesh.userData.isAffected) {
+          mat.color.setHex(affectedColor);
+          mat.emissive.setHex(affectedEmissive);
+          mat.emissiveIntensity = 0.35;
+        } else {
+          mat.color.setHex(hoveredMesh.userData.originalColor);
+          mat.emissive.setHex(0x000000);
+        }
         hoveredMesh.scale.set(1, 1, 1);
         hoveredMesh = null;
         hoveredInfo = null;
@@ -352,8 +395,14 @@
   function handlePointerLeave() {
     if (hoveredMesh) {
       const mat = hoveredMesh.material as THREE.MeshStandardMaterial;
-      mat.color.setHex(hoveredMesh.userData.originalColor);
-      mat.emissive.setHex(0x000000);
+      if (hoveredMesh.userData.isAffected) {
+        mat.color.setHex(affectedColor);
+        mat.emissive.setHex(affectedEmissive);
+        mat.emissiveIntensity = 0.35;
+      } else {
+        mat.color.setHex(hoveredMesh.userData.originalColor);
+        mat.emissive.setHex(0x000000);
+      }
       hoveredMesh.scale.set(1, 1, 1);
       hoveredMesh = null;
       hoveredInfo = null;

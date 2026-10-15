@@ -54,8 +54,23 @@
     generating = true;
     error = '';
     try {
-      const raw = await generatePhysiotherapyPlan({ surgeryType, recoveryStage, painScore, symptoms, limitations });
+      // Run plan generation and affected-part extraction in parallel
+      const [raw, affectedRes] = await Promise.all([
+        generatePhysiotherapyPlan({ surgeryType, recoveryStage, painScore, symptoms, limitations }),
+        fetch('/api/extract-affected-part', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ surgeryType })
+        })
+      ]);
+
       const data = typeof raw === 'string' ? JSON.parse(raw) : raw;
+
+      let affectedSpineRegion: string[] | undefined;
+      if (affectedRes.ok) {
+        const affectedData = await affectedRes.json();
+        affectedSpineRegion = affectedData.regions?.length ? affectedData.regions : undefined;
+      }
 
       const addIds = (exercises: Exercise[], prefix: string): Exercise[] =>
         exercises.map((e, i) => ({ ...e, id: `${prefix}_${i}`, category: prefix as Exercise['category'] }));
@@ -69,7 +84,8 @@
         afternoon: addIds(data.afternoon || [], 'afternoon'),
         evening: addIds(data.evening || [], 'evening'),
         precautions: data.precautions || [],
-        redFlags: data.redFlags || []
+        redFlags: data.redFlags || [],
+        affectedSpineRegion
       };
       plan = newPlan;
       showForm = false;

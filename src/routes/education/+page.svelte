@@ -1,7 +1,26 @@
 <script lang="ts">
   import Spine3D from '$lib/components/Spine3D.svelte';
   import { slide } from 'svelte/transition';
+  import { onMount } from 'svelte';
+  import { authStore } from '$lib/stores/auth';
+  import { getExercisePlan } from '$lib/firebase/firestore';
+
   let openSection = $state<string | null>(null);
+  let affectedSpineRegion = $state<string[]>([]);
+
+  const user = $derived($authStore.user);
+
+  onMount(async () => {
+    if (!user) return;
+    try {
+      const plan = await getExercisePlan(user.uid);
+      if (plan?.affectedSpineRegion?.length) {
+        affectedSpineRegion = plan.affectedSpineRegion;
+      }
+    } catch (e) {
+      console.warn('[Education] Could not load exercise plan for spine highlight:', e);
+    }
+  });
 
   const sections = [
     {
@@ -170,9 +189,15 @@ Every surgery and every patient is unique. Always follow your specific surgeon's
         Interactive Spine Anatomy
       </h2>
       <p class="text-slate-500 text-xs leading-relaxed">Hover over individual vertebrae to explore regions, functions, and common surgical procedures. Use your mouse to rotate and zoom.</p>
+      {#if affectedSpineRegion.length > 0}
+        <p class="text-red-600 text-xs font-semibold mt-2 flex items-center gap-1.5">
+          <span class="w-2 h-2 rounded-full bg-red-500 animate-pulse"></span>
+          Surgery site highlighted: {affectedSpineRegion.join(', ')}
+        </p>
+      {/if}
     </div>
   </div>
-  <Spine3D />
+  <Spine3D affectedSpineRegion={affectedSpineRegion} />
   <div class="absolute bottom-6 right-6 z-10 bg-white/80 backdrop-blur-md border border-slate-200/60 px-4 py-3 rounded-2xl flex items-center gap-4 text-xs font-semibold text-slate-700 shadow-xl">
       <div class="flex items-center gap-2">
           <span class="w-3 h-3 rounded-full bg-[#eae6df] shadow-inner border border-slate-300"></span> Normal
@@ -180,6 +205,11 @@ Every surgery and every patient is unique. Always follow your specific surgeon's
       <div class="flex items-center gap-2">
           <span class="w-3 h-3 rounded-full bg-blue-500 shadow-[0_0_8px_rgba(59,130,246,0.4)]"></span> Selected
       </div>
+      {#if affectedSpineRegion.length > 0}
+      <div class="flex items-center gap-2">
+          <span class="w-3 h-3 rounded-full bg-red-500 shadow-[0_0_8px_rgba(239,68,68,0.5)]"></span> Surgery Site
+      </div>
+      {/if}
   </div>
 </div>
 

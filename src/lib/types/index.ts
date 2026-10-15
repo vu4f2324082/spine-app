@@ -55,6 +55,9 @@ export interface ExercisePlan {
   evening: Exercise[];
   precautions: string[];
   redFlags: string[];
+  /** Spine region key(s) to highlight red in the 3D model on the education page.
+   *  Stored so the AI is only called once per plan generation. */
+  affectedSpineRegion?: string[];
 }
 
 export interface ExerciseCompletion {
